@@ -1,0 +1,66 @@
+* single NMOS characterisation, case nmos_on
+.include ../../models/32nm_HP.pm
+.options gmin=1e-18 abstol=1e-18 reltol=1e-6 vntol=1e-9
+
+M1 d g s b nmos W=2.479069e-07 L=3.200000e-08 AD=1.586604e-14 AS=1.586604e-14 PD=6.238139e-07 PS=6.238139e-07
+Vd d 0 0
+Vg g 0 0
+Vs s 0 0
+Vb b 0 0
+.control
+set noaskquit
+set numdgt=12
+altermod nmos vth0=4.796151865e-01
+altermod nmos toxe=1.103631394e-09
+altermod nmos ndep=4.037200415e+18
+altermod nmos u0=5.278352079e-02
+altermod nmos xj=1.037339106e-08
+alter @M1[w]=2.479069475e-07
+alter @M1[ad]=1.586604464e-14
+alter @M1[as]=1.586604464e-14
+alter @M1[pd]=6.238138950e-07
+alter @M1[ps]=6.238138950e-07
+alter Vd dc=3.184088266e-01
+alter Vg dc=8.788844119e-01
+alter Vs dc=2.846659516e-01
+alter Vb dc=0.000000000e+00
+option temp=-3.467980213e+01
+op
+print i(Vd) i(Vg) i(Vs) i(Vb)
+altermod nmos vth0=5.259786500e-01
+altermod nmos toxe=1.160741005e-09
+altermod nmos ndep=4.139499366e+18
+altermod nmos u0=4.772547552e-02
+altermod nmos xj=1.013634755e-08
+alter @M1[w]=1.564173858e-07
+alter @M1[ad]=1.001071269e-14
+alter @M1[as]=1.001071269e-14
+alter @M1[pd]=4.408347716e-07
+alter @M1[ps]=4.408347716e-07
+alter Vd dc=1.154910335e-01
+alter Vg dc=8.136793091e-01
+alter Vs dc=7.652493206e-01
+alter Vb dc=0.000000000e+00
+option temp=3.357246565e+01
+op
+print i(Vd) i(Vg) i(Vs) i(Vb)
+altermod nmos vth0=4.899191469e-01
+altermod nmos toxe=1.200257516e-09
+altermod nmos ndep=3.720472902e+18
+altermod nmos u0=4.626779193e-02
+altermod nmos xj=1.065643511e-08
+alter @M1[w]=1.174785454e-07
+alter @M1[ad]=7.518626907e-15
+alter @M1[as]=7.518626907e-15
+alter @M1[pd]=3.629570908e-07
+alter @M1[ps]=3.629570908e-07
+alter Vd dc=5.878906149e-01
+alter Vg dc=9.777536813e-01
+alter Vs dc=1.424495584e-01
+alter Vb dc=0.000000000e+00
+option temp=-3.333695745e+01
+op
+print i(Vd) i(Vg) i(Vs) i(Vb)
+quit
+.endc
+.end

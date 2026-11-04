@@ -1,0 +1,42 @@
+{
+  "ngspice": "ngspice-47",
+  "model_file": "32nm_HP.pm",
+  "vdd_nominal": 0.9,
+  "lmin": 3.2e-08,
+  "seed": 2026,
+  "n": 10000,
+  "cases": {
+    "nmos_on": {
+      "seconds": 1.4,
+      "max_kcl_residual_A": 1.1447110629380993e-15,
+      "id_abs_range_A": [
+        3.358318863085e-15,
+        0.0004158243205721
+      ]
+    },
+    "nmos_off": {
+      "seconds": 1.3,
+      "max_kcl_residual_A": 5.09136767531842e-20,
+      "id_abs_range_A": [
+        3.366551916774e-16,
+        6.468604295368e-08
+      ]
+    },
+    "pmos_on": {
+      "seconds": 1.3,
+      "max_kcl_residual_A": 5.910529739483106e-16,
+      "id_abs_range_A": [
+        1.79646400658e-17,
+        0.0003224018482236
+      ]
+    },
+    "pmos_off": {
+      "seconds": 1.3,
+      "max_kcl_residual_A": 1.0348420991679889e-15,
+      "id_abs_range_A": [
+        4.637473839531e-19,
+        2.7697840135e-08
+      ]
+    }
+  }
+}
