@@ -15,20 +15,20 @@ Spec: [`reference/DVD_ML_PROJECT.pdf`](reference/DVD_ML_PROJECT.pdf) · Lecture 
 
 | Item | Value |
 |---|---|
-| Model file | **TODO** (placeholder `22nm_HP.pm`) |
-| Nominal VDD | **TODO** (placeholder 0.9 V) |
-| Test circuit | **TODO** (placeholder 3-bit CLA) |
+| Model file | `32nm_HP.pm` (Lmin = 32 nm) |
+| Nominal VDD | 0.9 V (sampled 0.81–0.99 V) |
+| Test circuit | 8-bit parity checker |
 | Simulator | ngspice-47 |
 
-Set these in [`config.yaml`](config.yaml) and flip `assignment.confirmed` to `true`.
+Configured in [`config.yaml`](config.yaml).
 
 ## Phases
 
 | # | Phase | Spec part | Scripts | Status |
 |---|---|---|---|---|
 | 0 | Setup and toolchain validation | n/a | (local only) | ✅ done |
-| 1 | Transistor dataset generation (4 × 10k samples) | A.1 | `01_gen_transistor_data.py` | 🟡 code done, waiting on assignment |
-| 2 | Data checks: Kirchhoff + 3 trend plots | A.1 / deliverable 3 | `02_data_checks.py` | ⬜ |
+| 1 | Transistor dataset generation (4 × 10k samples) | A.1 | `01_gen_transistor_data.py` | ✅ done (4 × 10,000 samples) |
+| 2 | Data checks: Kirchhoff + 3 trend plots | A.1 / deliverable 3 | `02_data_checks.py` | ✅ done |
 | 3 | ML models: 4 model types × 4 cases, select, test | A.2 / deliverables 4–5 | `03_train_models.py` | ⬜ |
 | 4 | 200 shared corners + gate SPICE reference (18 cases) | B.3 | `04_gen_corners.py`, `05_gate_spice.py` | ⬜ |
 | 5 | Gate-level ML prediction and comparison | B.4–5 / deliverables 6–7 | `06_gate_ml.py` | ⬜ |
@@ -43,7 +43,8 @@ Scripts run in numeric order. All randomness comes from seeds in `config.yaml`.
 brew install ngspice libomp
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python 01_gen_transistor_data.py
+python 01_gen_transistor_data.py   # ~6 s
+python 02_data_checks.py           # results/kcl_check.csv, figures/
 ```
 
 ## Layout

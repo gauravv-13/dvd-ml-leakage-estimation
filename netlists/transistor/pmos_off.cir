@@ -1,0 +1,66 @@
+* single PMOS characterisation, case pmos_off
+.include ../../models/32nm_HP.pm
+.options gmin=1e-18 abstol=1e-18 reltol=1e-6 vntol=1e-9
+
+M1 d g s b pmos W=2.260355e-07 L=3.200000e-08 AD=1.446627e-14 AS=1.446627e-14 PD=5.800710e-07 PS=5.800710e-07
+Vd d 0 0
+Vg g 0 0
+Vs s 0 0
+Vb b 0 0
+.control
+set noaskquit
+set numdgt=12
+altermod pmos vth0=-5.391312807e-01
+altermod pmos toxe=1.220891178e-09
+altermod pmos ndep=3.218089873e+18
+altermod pmos u0=1.281799800e-02
+altermod pmos xj=9.834137109e-09
+alter @M1[w]=2.260354973e-07
+alter @M1[ad]=1.446627183e-14
+alter @M1[as]=1.446627183e-14
+alter @M1[pd]=5.800709946e-07
+alter @M1[ps]=5.800709946e-07
+alter Vd dc=8.220716034e-01
+alter Vg dc=9.438001416e-01
+alter Vs dc=7.384093687e-01
+alter Vb dc=9.438001416e-01
+option temp=4.646457038e+01
+op
+print i(Vd) i(Vg) i(Vs) i(Vb)
+altermod pmos vth0=-4.739402193e-01
+altermod pmos toxe=1.222765048e-09
+altermod pmos ndep=2.989360858e+18
+altermod pmos u0=1.344643540e-02
+altermod pmos xj=9.219241850e-09
+alter @M1[w]=1.139836728e-07
+alter @M1[ad]=7.294955057e-15
+alter @M1[as]=7.294955057e-15
+alter @M1[pd]=3.559673455e-07
+alter @M1[ps]=3.559673455e-07
+alter Vd dc=1.111153131e-01
+alter Vg dc=8.421992910e-01
+alter Vs dc=5.625148202e-01
+alter Vb dc=8.421992910e-01
+option temp=-3.843676665e+01
+op
+print i(Vd) i(Vg) i(Vs) i(Vb)
+altermod pmos vth0=-4.532895274e-01
+altermod pmos toxe=1.157349642e-09
+altermod pmos ndep=2.889551375e+18
+altermod pmos u0=1.407537772e-02
+altermod pmos xj=1.053772083e-08
+alter @M1[w]=6.719448020e-08
+alter @M1[ad]=4.300446733e-15
+alter @M1[as]=4.300446733e-15
+alter @M1[pd]=2.623889604e-07
+alter @M1[ps]=2.623889604e-07
+alter Vd dc=1.442992552e-01
+alter Vg dc=9.419224918e-01
+alter Vs dc=4.137719758e-01
+alter Vb dc=9.419224918e-01
+option temp=9.523503314e+01
+op
+print i(Vd) i(Vg) i(Vs) i(Vb)
+quit
+.endc
+.end
