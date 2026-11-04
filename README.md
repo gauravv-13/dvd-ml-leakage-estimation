@@ -26,7 +26,7 @@ Set these in [`config.yaml`](config.yaml) and flip `assignment.confirmed` to `tr
 
 | # | Phase | Spec part | Scripts | Status |
 |---|---|---|---|---|
-| 0 | Setup and toolchain validation | n/a | `00_check_env.py` | ✅ done |
+| 0 | Setup and toolchain validation | n/a | (local only) | ✅ done |
 | 1 | Transistor dataset generation (4 × 10k samples) | A.1 | `01_gen_transistor_data.py` | 🟡 code done, waiting on assignment |
 | 2 | Data checks: Kirchhoff + 3 trend plots | A.1 / deliverable 3 | `02_data_checks.py` | ⬜ |
 | 3 | ML models: 4 model types × 4 cases, select, test | A.2 / deliverables 4–5 | `03_train_models.py` | ⬜ |
@@ -43,7 +43,6 @@ Scripts run in numeric order. All randomness comes from seeds in `config.yaml`.
 brew install ngspice libomp
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python 00_check_env.py        # must print ALL CHECKS PASSED
 python 01_gen_transistor_data.py
 ```
 
@@ -54,8 +53,8 @@ config.yaml            assignment, sampling ranges, seeds (single source of trut
 src/config.py          config loader + model-card parser (nominal vth0, toxe, ndep, u0, xj)
 src/sampling.py        random draws per spec section 4
 src/spice.py           netlist generation, parallel ngspice runs, output parsing
-models/                PTM BSIM4 model cards (from reference/models.zip)
-reference/             spec, slides, TA example netlist, original model archives
+models/                PTM BSIM4 model cards
+reference/             spec, slides, TA example netlist
 data/ netlists/ results/ figures/ saved_models/ report/   generated outputs
 ```
 
@@ -67,7 +66,7 @@ data/ netlists/ results/ figures/ saved_models/ report/   generated outputs
   (as in the TA example netlist), and the same rule in every netlist. Without it, body/junction leakage is close to zero.
 - **ngspice `altermod` pitfall:** a multi-parameter line such as `altermod nmos vth0=.. toxe=..`
   applies **only the first** parameter and silently ignores the rest. The code emits one
-  `altermod` per parameter, and `00_check_env.py` checks that each of the five process parameters
+  `altermod` per parameter. A sensitivity test confirmed that each of the five process parameters
   changes the simulated currents.
 - **Kirchhoff floor:** the PTM cards enable the gate and substrate resistance networks
   (`rgatemod=1`, `rbodymod=1`). With them on, ngspice's BSIM4 shows a residual `|ΣI|` of about 1e-16 A,
