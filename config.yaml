@@ -1,0 +1,36 @@
+# ---------------------------------------------------------------------------
+# Single source of truth for the whole project. Every script reads this file.
+# ---------------------------------------------------------------------------
+
+assignment:
+  # TODO: fill in the values the TAs assigned to the team, then set confirmed: true.
+  # Until then the scripts run with these placeholders but print a warning.
+  confirmed: false
+  model_file: 22nm_HP.pm        # one of models/*.pm
+  vdd_nominal: 0.9              # 0.9 or 1.0 V
+  test_circuit: CLA3            # CLA3 (3-bit carry-lookahead) or PARITY8 (8-bit parity)
+
+technology:
+  lmin: auto                    # auto = taken from the model file name (e.g. 22nm -> 22e-9)
+  ldiff_factor: 2.0             # diffusion length = ldiff_factor * Lmin (TA netlist: Ldiff = 44n at 22n)
+
+sampling:                       # spec section 4
+  vdd_tolerance: 0.10           # VDD ~ U(vdd_nominal * (1 +/- 0.10))
+  temp_range: [-40.0, 125.0]    # deg C
+  width_range_lmin: [1.0, 8.0]  # W ~ U(1, 8) * Lmin
+  process_tolerance: 0.10       # each process param ~ nominal * U(0.9, 1.1)
+  process_params: [vth0, toxe, ndep, u0, xj]
+
+transistor_data:
+  n_samples: 10000              # per case
+  seed: 2026
+  n_jobs: 8                     # parallel ngspice processes
+  chunk_size: 500               # samples per ngspice run
+
+split:
+  seed: 42
+  fractions: [0.70, 0.15, 0.15] # train / val / test
+
+spice:
+  options: ".options gmin=1e-18 abstol=1e-18 reltol=1e-6 vntol=1e-9"
+  numdgt: 12
