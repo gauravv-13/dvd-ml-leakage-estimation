@@ -76,8 +76,24 @@ def header(title: str, cfg: Config, include: str | None = None) -> str:
 # Single-transistor characterisation (Part A)
 # ---------------------------------------------------------------------------
 
-def single_fet_netlist(case: str, samples: pd.DataFrame, cfg: Config,
-                       include: str | None = None) -> str:
+def example_netlist(case: str, row: pd.Series, cfg: Config, include: str) -> str:
+    """Deliverable 2: a plain single-transistor netlist for one sample (one .op point)."""
+    dev = CASES[case]["dev"]
+    lines = [header(f"{case}: single {dev.upper()}, one sample", cfg, include) + f".temp {row.temp:.6g}",
+             "",
+             mos_line("M1", "d", "g", "s", "b", dev, row.w, cfg),
+             f"Vd d 0 dc {row.vd:.6g}",
+             f"Vg g 0 dc {row.vg:.6g}",
+             f"Vs s 0 dc {row.vs:.6g}",
+             f"Vb b 0 dc {row.vb:.6g}",
+             "",
+             ".control"]
+    lines += altermod_lines(dev, {p: row[p] for p in cfg["sampling"]["process_params"]})
+    lines += ["op", "print i(Vd) i(Vg) i(Vs) i(Vb)", ".endc", ".end", ""]
+    return "\n".join(lines)
+
+
+def single_fet_netlist(case: str, samples: pd.DataFrame, cfg: Config) -> str:
     """One netlist that simulates every row of `samples` as a separate .op point.
 
     Every terminal has its own voltage source (spec netlist requirement).
@@ -86,7 +102,7 @@ def single_fet_netlist(case: str, samples: pd.DataFrame, cfg: Config,
     """
     dev = CASES[case]["dev"]
     first = samples.iloc[0]
-    lines = [header(f"single {dev.upper()} characterisation, case {case}", cfg, include),
+    lines = [header(f"single {dev.upper()} characterisation, case {case}", cfg),
              mos_line("M1", "d", "g", "s", "b", dev, first.w, cfg),
              "Vd d 0 0", "Vg g 0 0", "Vs s 0 0", "Vb b 0 0",
              ".control", "set noaskquit", f"set numdgt={cfg['spice']['numdgt']}"]

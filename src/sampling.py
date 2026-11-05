@@ -36,18 +36,3 @@ def sample_transistor_inputs(case: str, n: int, cfg: Config, rng: np.random.Gene
         df[p] = v
     return df
 
-
-def nominal_sweep(case: str, column: str, values, cfg: Config, w_lmin: float = 2.0) -> pd.DataFrame:
-    """Rows at nominal conditions (VDD_nom, 27 C, W = w_lmin*Lmin, nominal process, full VDD
-    across the channel in the conducting direction) with one column swept over `values`."""
-    spec = CASES[case]
-    dev, vdd = spec["dev"], cfg.vdd_nominal
-    n = len(values)
-    df = pd.DataFrame({"vdd": [vdd] * n, "temp": 27.0, "w": w_lmin * cfg.lmin,
-                       "vd": vdd if dev == "nmos" else 0.0, "vs": 0.0 if dev == "nmos" else vdd,
-                       "vg": vdd if spec["vg"] == "vdd" else 0.0,
-                       "vb": vdd if spec["vb"] == "vdd" else 0.0})
-    for p in cfg["sampling"]["process_params"]:
-        df[p] = cfg.nominal[dev][p]
-    df[column] = np.asarray(values, dtype=float)
-    return df

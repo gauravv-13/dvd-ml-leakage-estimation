@@ -1,66 +1,21 @@
-* single PMOS characterisation, case pmos_on
+* pmos_on: single PMOS, one sample
 .include ../../models/32nm_HP.pm
 .options gmin=1e-18 abstol=1e-18 reltol=1e-6 vntol=1e-9
+.temp 52.5427
 
 M1 d g s b pmos W=1.494853e-07 L=3.200000e-08 AD=9.567058e-15 AS=9.567058e-15 PD=4.269706e-07 PS=4.269706e-07
-Vd d 0 0
-Vg g 0 0
-Vs s 0 0
-Vb b 0 0
+Vd d 0 dc 0.652097
+Vg g 0 dc 0
+Vs s 0 dc 0.199535
+Vb b 0 dc 0.909152
+
 .control
-set noaskquit
-set numdgt=12
 altermod pmos vth0=-5.223820071e-01
 altermod pmos toxe=1.175558377e-09
 altermod pmos ndep=3.213551965e+18
 altermod pmos u0=1.416084593e-02
 altermod pmos xj=9.747314456e-09
-alter @M1[w]=1.494852777e-07
-alter @M1[ad]=9.567057775e-15
-alter @M1[as]=9.567057775e-15
-alter @M1[pd]=4.269705555e-07
-alter @M1[ps]=4.269705555e-07
-alter Vd dc=6.520965620e-01
-alter Vg dc=0.000000000e+00
-alter Vs dc=1.995354566e-01
-alter Vb dc=9.091519579e-01
-option temp=5.254270865e+01
 op
 print i(Vd) i(Vg) i(Vs) i(Vb)
-altermod pmos vth0=-4.829914443e-01
-altermod pmos toxe=1.169290147e-09
-altermod pmos ndep=2.851491277e+18
-altermod pmos u0=1.440404215e-02
-altermod pmos xj=9.402716028e-09
-alter @M1[w]=8.046900204e-08
-alter @M1[ad]=5.150016131e-15
-alter @M1[as]=5.150016131e-15
-alter @M1[pd]=2.889380041e-07
-alter @M1[ps]=2.889380041e-07
-alter Vd dc=1.291522934e-01
-alter Vg dc=0.000000000e+00
-alter Vs dc=5.332834610e-01
-alter Vb dc=8.521068129e-01
-option temp=-2.766929472e+01
-op
-print i(Vd) i(Vg) i(Vs) i(Vb)
-altermod pmos vth0=-5.267151040e-01
-altermod pmos toxe=1.264854847e-09
-altermod pmos ndep=3.042078820e+18
-altermod pmos u0=1.278549838e-02
-altermod pmos xj=1.049197176e-08
-alter @M1[w]=1.825431838e-07
-alter @M1[ad]=1.168276377e-14
-alter @M1[as]=1.168276377e-14
-alter @M1[pd]=4.930863677e-07
-alter @M1[ps]=4.930863677e-07
-alter Vd dc=2.951573667e-01
-alter Vg dc=0.000000000e+00
-alter Vs dc=5.303157173e-01
-alter Vb dc=9.250974085e-01
-option temp=3.289043916e+01
-op
-print i(Vd) i(Vg) i(Vs) i(Vb)
-quit
 .endc
 .end
