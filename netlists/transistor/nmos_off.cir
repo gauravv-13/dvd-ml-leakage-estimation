@@ -1,20 +1,28 @@
-* nmos_off: single NMOS, one sample
+* NMOS OFF: single-transistor leakage characterisation (Vg = 0, Vb = 0)
+
 .include ../../models/32nm_HP.pm
 .options gmin=1e-18 abstol=1e-18 reltol=1e-6 vntol=1e-9
-.temp 105.64
 
-M1 d g s b nmos W=7.472417e-08 L=3.200000e-08 AD=4.782347e-15 AS=4.782347e-15 PD=2.774483e-07 PS=2.774483e-07
-Vd d 0 dc 0.289647
+* Sample
+.param vdd=0.930800 temp=105.640 w=74.7242n vd=0.289647 vs=0.126553
+.param vth0=0.494018 toxe=1.15922n ndep=4.24708e18 u0=0.0462785 xj=9.32652n
+.param ldiff=64n
+.csparam temp={temp} vth0={vth0} toxe={toxe} ndep={ndep} u0={u0} xj={xj}
+
+M1 d g s b nmos W={w} L=32n AD={w*ldiff} AS={w*ldiff} PD={2*(w+ldiff)} PS={2*(w+ldiff)}
+Vd d 0 dc {vd}
 Vg g 0 dc 0
-Vs s 0 dc 0.126553
+Vs s 0 dc {vs}
 Vb b 0 dc 0
 
 .control
-altermod nmos vth0=4.940176369e-01
-altermod nmos toxe=1.159219922e-09
-altermod nmos ndep=4.247076022e+18
-altermod nmos u0=4.627850626e-02
-altermod nmos xj=9.326522233e-09
+set numdgt=12
+option temp=$&temp
+altermod nmos vth0=$&vth0
+altermod nmos toxe=$&toxe
+altermod nmos ndep=$&ndep
+altermod nmos u0=$&u0
+altermod nmos xj=$&xj
 op
 print i(Vd) i(Vg) i(Vs) i(Vb)
 .endc

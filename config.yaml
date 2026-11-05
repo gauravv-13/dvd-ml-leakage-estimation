@@ -11,7 +11,6 @@ assignment:
 
 technology:
   lmin: auto                    # auto = taken from the model file name (e.g. 22nm -> 22e-9)
-  ldiff_factor: 2.0             # diffusion length = ldiff_factor * Lmin (TA netlist: Ldiff = 44n at 22n)
 
 sampling:                       # spec section 4
   vdd_tolerance: 0.10           # VDD ~ U(vdd_nominal * (1 +/- 0.10))
@@ -24,12 +23,7 @@ transistor_data:
   n_samples: 10000              # per case
   seed: 2026
   n_jobs: 8                     # parallel ngspice processes
-  chunk_size: 500               # samples per ngspice run
 
 split:
   seed: 42
   fractions: [0.70, 0.15, 0.15] # train / val / test
-
-spice:
-  options: ".options gmin=1e-18 abstol=1e-18 reltol=1e-6 vntol=1e-9"
-  numdgt: 12

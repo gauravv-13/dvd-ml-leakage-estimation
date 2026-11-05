@@ -36,7 +36,6 @@ class Config:
     raw: dict
     model_path: Path
     lmin: float
-    ldiff: float
     vdd_nominal: float
     nominal: dict = field(default_factory=dict)  # {"nmos": {...}, "pmos": {...}}
 
@@ -85,7 +84,6 @@ def load_config(path: Path | None = None) -> Config:
         raw=raw,
         model_path=model_path,
         lmin=lmin,
-        ldiff=raw["technology"]["ldiff_factor"] * lmin,
         vdd_nominal=float(a["vdd_nominal"]),
         nominal=parse_model_card(model_path, raw["sampling"]["process_params"]),
     )

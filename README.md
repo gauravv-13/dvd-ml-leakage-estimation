@@ -43,7 +43,7 @@ Scripts run in numeric order. All randomness comes from seeds in `config.yaml`.
 brew install ngspice libomp
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python 01_gen_transistor_data.py   # ~6 s
+python 01_gen_transistor_data.py   # ~2 min
 python 02_data_checks.py           # results/kcl_check.csv, figures/
 ```
 
@@ -53,28 +53,36 @@ python 02_data_checks.py           # results/kcl_check.csv, figures/
 config.yaml            assignment, sampling ranges, seeds (single source of truth)
 src/config.py          config loader + model-card parser (nominal vth0, toxe, ndep, u0, xj)
 src/sampling.py        random draws per spec section 4
-src/spice.py           netlist generation, parallel ngspice runs, output parsing
+src/spice.py           applies each sample to the hand-written netlists, runs ngspice, reads currents
 models/                PTM BSIM4 model cards
 reference/             spec, slides, TA example netlist
-data/ netlists/ results/ figures/ saved_models/ report/   generated outputs
+netlists/transistor/   hand-written single-transistor netlists, one per case (deliverable 2)
+data/ results/ figures/ saved_models/ report/   generated outputs
 ```
+
+## How the transistor data is simulated
+
+Each case has a hand-written netlist in `netlists/transistor/<case>.cir`. Its `.param` lines
+hold one sample (`vdd, temp, w, vd, vs, vth0, toxe, ndep, u0, xj`). It runs on its own with
+`ngspice -b <case>.cir`. `01_gen_transistor_data.py` replaces those `.param` values with each
+of the 10,000 sampled rows in turn and runs ngspice once per row.
 
 ## Conventions and verified simulator behaviour
 
 - **Current sign:** every stored current is the current flowing *into* the device terminal
   (`I = -i(Vsource)` in ngspice).
 - **Junction geometry:** `AD = AS = W·Ldiff`, `PD = PS = 2(W + Ldiff)`, `Ldiff = 2·Lmin`
-  (`Ldiff` is defined in the TA example netlist), and the same rule in every netlist. Only Ib depends on it
+  (`Ldiff` is defined in the TA example netlist), written as expressions in each netlist. Only Ib depends on it
   (measured on NMOS OFF, W = 64 nm: Ib = 3.3e-17 A with geometry vs 1.0e-14 A without; Id, Ig, Is unchanged).
 - **ngspice `altermod` pitfall:** a multi-parameter line such as `altermod nmos vth0=.. toxe=..`
-  applies **only the first** parameter and silently ignores the rest. The code emits one
-  `altermod` per parameter. A sensitivity test confirmed that each of the five process parameters
+  applies **only the first** parameter and silently ignores the rest. The netlists use one
+  `altermod` line per parameter. A sensitivity test confirmed that each of the five process parameters
   changes the simulated currents.
 - **Kirchhoff floor:** the PTM cards enable the gate and substrate resistance networks
   (`rgatemod=1`, `rbodymod=1`). With them on, ngspice's BSIM4 shows a residual `|ΣI|` of about 1e-16 A,
   whatever the bias. With both off, the residual is 1e-31 A. The card is used unmodified, and the
   Kirchhoff check reports the median and max `|Id+Ig+Is+Ib|` per case.
-  Currents below about 1e-15 A carry the same ~1e-16 A numerical noise, so they differ slightly
-  between equivalent netlists.
+  Currents below about 1e-15 A sit at this ~1e-16 A noise floor and are not reproducible between
+  equivalent simulations (most affected: PMOS OFF Ig, PMOS ON/OFF Ib).
 - **Netlist options** (spec): `.options gmin=1e-18 abstol=1e-18 reltol=1e-6 vntol=1e-9`.
   The TA example netlist (`reference/22n_NMOS_ON.net`) uses older options and is kept only for reference.
