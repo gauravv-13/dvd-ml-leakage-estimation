@@ -6,7 +6,7 @@ one in ngspice and store inputs + terminal currents (current INTO each terminal)
 
 Outputs
   data/transistor/<case>.csv          deliverable 1 (columns in spec order)
-  netlists/transistor/<case>.cir      deliverable 2 (example netlist, first 3 samples)
+  netlists/transistor/<case>.cir      deliverable 2 (example netlist, first sample)
   data/transistor/metadata.json       simulator version, seeds, timing
 
 Run:  python 01_gen_transistor_data.py            (all cases, N from config.yaml)
@@ -23,7 +23,7 @@ import numpy as np
 
 from src.config import CASES, CSV_COLUMNS, DATA_DIR, NETLIST_DIR, ROOT, load_config
 from src.sampling import sample_transistor_inputs
-from src.spice import ngspice_version, simulate_single_fet, single_fet_netlist
+from src.spice import example_netlist, ngspice_version, simulate_single_fet
 
 
 def main() -> None:
@@ -53,7 +53,7 @@ def main() -> None:
 
         rel_include = Path("..") / ".." / cfg.model_path.relative_to(ROOT)
         (netlist_dir / f"{case}.cir").write_text(
-            single_fet_netlist(case, samples.head(3), cfg, include=str(rel_include)))
+            example_netlist(case, samples.iloc[0], cfg, include=str(rel_include)))
 
         I = df[["id", "ig", "is", "ib"]].to_numpy()
         resid = np.abs(I.sum(1))

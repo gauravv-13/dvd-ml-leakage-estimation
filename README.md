@@ -64,7 +64,8 @@ data/ netlists/ results/ figures/ saved_models/ report/   generated outputs
 - **Current sign:** every stored current is the current flowing *into* the device terminal
   (`I = -i(Vsource)` in ngspice).
 - **Junction geometry:** `AD = AS = W·Ldiff`, `PD = PS = 2(W + Ldiff)`, `Ldiff = 2·Lmin`
-  (as in the TA example netlist), and the same rule in every netlist. Without it, body/junction leakage is close to zero.
+  (`Ldiff` is defined in the TA example netlist), and the same rule in every netlist. Only Ib depends on it
+  (measured on NMOS OFF, W = 64 nm: Ib = 3.3e-17 A with geometry vs 1.0e-14 A without; Id, Ig, Is unchanged).
 - **ngspice `altermod` pitfall:** a multi-parameter line such as `altermod nmos vth0=.. toxe=..`
   applies **only the first** parameter and silently ignores the rest. The code emits one
   `altermod` per parameter. A sensitivity test confirmed that each of the five process parameters
@@ -72,6 +73,8 @@ data/ netlists/ results/ figures/ saved_models/ report/   generated outputs
 - **Kirchhoff floor:** the PTM cards enable the gate and substrate resistance networks
   (`rgatemod=1`, `rbodymod=1`). With them on, ngspice's BSIM4 shows a residual `|ΣI|` of about 1e-16 A,
   whatever the bias. With both off, the residual is 1e-31 A. The card is used unmodified, and the
-  Kirchhoff check passes when `|ΣI| ≤ max(1e-6·max|I|, 1e-15 A)`.
+  Kirchhoff check reports the median and max `|Id+Ig+Is+Ib|` per case.
+  Currents below about 1e-15 A carry the same ~1e-16 A numerical noise, so they differ slightly
+  between equivalent netlists.
 - **Netlist options** (spec): `.options gmin=1e-18 abstol=1e-18 reltol=1e-6 vntol=1e-9`.
   The TA example netlist (`reference/22n_NMOS_ON.net`) uses older options and is kept only for reference.
