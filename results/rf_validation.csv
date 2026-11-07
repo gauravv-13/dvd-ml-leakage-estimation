@@ -1,0 +1,2 @@
+model,case,n_estimators,max_depth,max_features,min_samples_leaf,val_r2,val_median_err_pct,val_p95_err_pct
+RF,nmos_on,200,16,1.0,1,0.8969434857101524,56.39751664311936,390.6575663966314
