@@ -38,3 +38,6 @@ gates:                          # Phase 4 (spec Part B, section 5)
 split:
   seed: 42
   fractions: [0.70, 0.15, 0.15] # train / val / test
+
+rf:
+  seed: 2026
