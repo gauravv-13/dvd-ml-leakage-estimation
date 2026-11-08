@@ -181,7 +181,30 @@ A first scikit-learn \texttt{MLPRegressor} underfit (6--7\,\% median error at be
 LR schedule and stopped early); the move to PyTorch with an LR schedule, L1 loss and per-output
 scaling brought the error below 1\,\%.
 
-\paragraph{Model type 2.} \pending{teammate's model, main hyperparameters, preprocessing}
+\paragraph{Polynomial ridge regression (scikit-learn).} A global polynomial of the raw inputs
+fails on $I_d$ and $I_s$ (about 100\,\% median error at degree 2--4): they change sign with
+$V_d-V_s$, a near-step on the asinh scale. The model therefore predicts three sign-consistent
+quantities, each with its own polynomial ridge regression on a log scale:
+$D/V_{ds}$ with $D = I_d - I_s$ (even in $V_{ds}$ and positive in all 40{,}000 samples), $I_g$ and
+$I_b$ (log of the magnitude, with the majority training sign; only PMOS OFF has mixed signs, at the
+noise floor). Then $I_d = (D - I_g - I_b)/2$ and $I_s = (-D - I_g - I_b)/2$, so the predicted
+currents satisfy Kirchhoff exactly.
+Features (20) are built in a symmetric frame: PMOS voltages are mirrored ($V \to V_{DD} - V$) and
+drain/source are sorted into the lower and higher terminal, so swapping them swaps $I_d$ and $I_s$
+exactly. Base features: $V_{DD}$, $V_{lo}$, $V_{hi}$, $1/T$, $\ln W$ and the five process parameters.
+Physics-based features: the subthreshold drain factor $\ln[(1-e^{-V_{ds}/V_T})/(V_{ds}/V_T)]$;
+EKV inversion charges $\ln q$, $q=\ln(1+e^{(V_G - V - |v_{th0}|)/2nV_T})$ at each channel end, and
+$\ln[(q_{lo}^2-q_{hi}^2)V_T/V_{ds}]$; a sharper softplus ($V_T$ scale) and $t_{oxe}(V_G - V)$ at each
+end for gate tunnelling; $E_g(T)/V_T$ and an optional junction reverse-bias factor for the diode
+currents. Pipeline: standardise, \texttt{PolynomialFeatures}(degree), standardise, \texttt{Ridge}($\alpha$).
+Degree $\in\{2,3,4\}$ (degree 4 has 10{,}625 terms; degree 5--6 overfitted in early tests),
+$\alpha \in \{10^{-7},\dots,1\}$ and junction feature on/off were chosen separately for each of the
+three parts by the validation RMSE of the log target; selecting on the median error instead picked
+degree-4, $\alpha=10^{-7}$ fits that predicted up to \SI{1e130}{A} at a few sparse validation points.
+The physics features were decisive: EKV charges took the ON-case $I_d$ median error from about 4\,\%
+to 0.7\,\%, the junction features took NMOS OFF $I_g$ from 1.1\,\% to 0.1\,\%. Chosen degrees are 3--4
+(2 for PMOS OFF $I_b$); all settings are in \texttt{results/poly\_ridge\_validation.csv}, the full
+sweep in \texttt{results/poly\_ridge\_sweep.csv}.
 
 \paragraph{Model type 3.} \pending{teammate's model, main hyperparameters, preprocessing}
 
@@ -207,7 +230,11 @@ MLP & NMOS ON  & 1.02 / 0.33 / 1.03 / 0.47 & 10.3 / 3.2 / 10.6 / 2.7 & .9918 / .
     & PMOS ON  & 1.03 / 0.30 / 1.03 / 0.48 & 15.4 / 1.5 / 14.6 / 4.3 & .9881 / 1.000 / .9888 / .9998 \\
     & PMOS OFF & 7.88 / 14.99 / 7.82 / 17.29 & 63.5 / 226.5 / 78.8 / 243.3 & .9847 / .3980 / .9865 / .8186 \\
 \midrule
-Type 2 & all & \multicolumn{3}{c}{\pending{results}} \\
+Poly. ridge & NMOS ON  & 0.32 / 2.00 / 0.32 / 5.13 & 1.8 / 14.2 / 1.8 / 18.7 & .9997 / .9988 / 1.000 / .9989 \\
+            & NMOS OFF & 3.61 / 0.10 / 3.98 / 8.71 & 54.6 / 0.7 / 52.1 / 30.5 & .9540 / 1.000 / .9742 / .9994 \\
+            & PMOS ON  & 0.20 / 0.18 / 0.20 / 6.81 & 0.8 / 1.0 / 0.8 / 21.6 & 1.000 / 1.000 / 1.000 / .9984 \\
+            & PMOS OFF & 14.75 / 22.15 / 14.96 / 29.90 & 139.0 / 267.7 / 140.4 / 449.7 & .9849 / .3993 / .9884 / .6963 \\
+\midrule
 Type 3 & all & \multicolumn{3}{c}{\pending{results}} \\
 Type 4 & all & \multicolumn{3}{c}{\pending{results}} \\
 \bottomrule

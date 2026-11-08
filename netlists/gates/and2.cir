@@ -1,0 +1,42 @@
+* AND2 = NAND2 + INV, simulated as one gate: static leakage at one corner and inputs AB
+* x = node between the series NMOS of the NAND2, nd = NAND2 output (INV input)
+
+.include ../../models/32nm_HP.pm
+.options gmin=1e-18 abstol=1e-18 reltol=1e-6 vntol=1e-9
+
+* Corner (nominal values here; 05_gate_spice.py replaces them) and input logic values
+.param vdd=0.9 temp=27
+.param nvth0=0.49396 ntoxe=1.15n nndep=4.12e18 nu0=0.05 nxj=10n
+.param pvth0=-0.49155 ptoxe=1.2n pndep=3.07e18 pu0=0.014 pxj=10n
+.param ina=0 inb=0
+.param wn_nand=64n wp_nand=64n wn_inv=32n wp_inv=64n ldiff=64n
+.csparam temp={temp} nvth0={nvth0} ntoxe={ntoxe} nndep={nndep} nu0={nu0} nxj={nxj}
+.csparam pvth0={pvth0} ptoxe={ptoxe} pndep={pndep} pu0={pu0} pxj={pxj}
+
+MPA nd a vdd vdd pmos W={wp_nand} L=32n AD={wp_nand*ldiff} AS={wp_nand*ldiff} PD={2*(wp_nand+ldiff)} PS={2*(wp_nand+ldiff)}
+MPB nd b vdd vdd pmos W={wp_nand} L=32n AD={wp_nand*ldiff} AS={wp_nand*ldiff} PD={2*(wp_nand+ldiff)} PS={2*(wp_nand+ldiff)}
+MNA nd a x 0 nmos W={wn_nand} L=32n AD={wn_nand*ldiff} AS={wn_nand*ldiff} PD={2*(wn_nand+ldiff)} PS={2*(wn_nand+ldiff)}
+MNB x b 0 0 nmos W={wn_nand} L=32n AD={wn_nand*ldiff} AS={wn_nand*ldiff} PD={2*(wn_nand+ldiff)} PS={2*(wn_nand+ldiff)}
+MPI out nd vdd vdd pmos W={wp_inv} L=32n AD={wp_inv*ldiff} AS={wp_inv*ldiff} PD={2*(wp_inv+ldiff)} PS={2*(wp_inv+ldiff)}
+MNI out nd 0 0 nmos W={wn_inv} L=32n AD={wn_inv*ldiff} AS={wn_inv*ldiff} PD={2*(wn_inv+ldiff)} PS={2*(wn_inv+ldiff)}
+Vdd vdd 0 dc {vdd}
+Va a 0 dc {ina*vdd}
+Vb b 0 dc {inb*vdd}
+
+.control
+set numdgt=12
+option temp=$&temp
+altermod nmos vth0=$&nvth0
+altermod nmos toxe=$&ntoxe
+altermod nmos ndep=$&nndep
+altermod nmos u0=$&nu0
+altermod nmos xj=$&nxj
+altermod pmos vth0=$&pvth0
+altermod pmos toxe=$&ptoxe
+altermod pmos ndep=$&pndep
+altermod pmos u0=$&pu0
+altermod pmos xj=$&pxj
+op
+print v(out) v(x) v(nd) i(Vdd) i(Va) i(Vb)
+.endc
+.end

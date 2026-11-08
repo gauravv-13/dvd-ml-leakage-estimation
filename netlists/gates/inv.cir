@@ -1,0 +1,36 @@
+* INV: static leakage at one corner and input A (NMOS body at 0, PMOS body at VDD)
+
+.include ../../models/32nm_HP.pm
+.options gmin=1e-18 abstol=1e-18 reltol=1e-6 vntol=1e-9
+
+* Corner (nominal values here; 05_gate_spice.py replaces them) and input logic values
+.param vdd=0.9 temp=27
+.param nvth0=0.49396 ntoxe=1.15n nndep=4.12e18 nu0=0.05 nxj=10n
+.param pvth0=-0.49155 ptoxe=1.2n pndep=3.07e18 pu0=0.014 pxj=10n
+.param ina=0
+.param wn=32n wp=64n ldiff=64n
+.csparam temp={temp} nvth0={nvth0} ntoxe={ntoxe} nndep={nndep} nu0={nu0} nxj={nxj}
+.csparam pvth0={pvth0} ptoxe={ptoxe} pndep={pndep} pu0={pu0} pxj={pxj}
+
+MP out a vdd vdd pmos W={wp} L=32n AD={wp*ldiff} AS={wp*ldiff} PD={2*(wp+ldiff)} PS={2*(wp+ldiff)}
+MN out a 0 0 nmos W={wn} L=32n AD={wn*ldiff} AS={wn*ldiff} PD={2*(wn+ldiff)} PS={2*(wn+ldiff)}
+Vdd vdd 0 dc {vdd}
+Va a 0 dc {ina*vdd}
+
+.control
+set numdgt=12
+option temp=$&temp
+altermod nmos vth0=$&nvth0
+altermod nmos toxe=$&ntoxe
+altermod nmos ndep=$&nndep
+altermod nmos u0=$&nu0
+altermod nmos xj=$&nxj
+altermod pmos vth0=$&pvth0
+altermod pmos toxe=$&ptoxe
+altermod pmos ndep=$&pndep
+altermod pmos u0=$&pu0
+altermod pmos xj=$&pxj
+op
+print v(out) i(Vdd) i(Va)
+.endc
+.end

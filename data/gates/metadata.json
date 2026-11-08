@@ -1,0 +1,33 @@
+{
+  "ngspice": "ngspice-42",
+  "model_file": "32nm_HP.pm",
+  "n_corners": 200,
+  "widths_m": {
+    "inv": {
+      "wn": 3.2e-08,
+      "wp": 6.4e-08
+    },
+    "nand2": {
+      "wn": 6.4e-08,
+      "wp": 6.4e-08
+    },
+    "nor2": {
+      "wn": 3.2e-08,
+      "wp": 1.28e-07
+    },
+    "and2": {
+      "wn_nand": 6.4e-08,
+      "wp_nand": 6.4e-08,
+      "wn_inv": 3.2e-08,
+      "wp_inv": 6.4e-08
+    },
+    "or2": {
+      "wn_nor": 3.2e-08,
+      "wp_nor": 1.28e-07,
+      "wn_inv": 3.2e-08,
+      "wp_inv": 6.4e-08
+    }
+  },
+  "seconds": 11.4,
+  "max_vout_error_frac_vdd": 0.0007141636359601591
+}

@@ -24,6 +24,17 @@ transistor_data:
   seed: 2026
   n_jobs: 8                     # parallel ngspice processes
 
+gates:                          # Phase 4 (spec Part B, section 5)
+  n_corners: 200                # one corner = VDD, T, NMOS process draw, PMOS process draw
+  seed: 4242
+  n_jobs: 8                     # parallel ngspice processes
+  # Transistor widths in units of Lmin (Wmin = Lmin = 32 nm). Not set by the spec; standard
+  # static CMOS sizing as in the lecture slides. AND2 = NAND2 + INV, OR2 = NOR2 + INV sizes.
+  widths_lmin:
+    inv:   {n: 1, p: 2}
+    nand2: {n: 2, p: 2}
+    nor2:  {n: 1, p: 4}
+
 split:
   seed: 42
   fractions: [0.70, 0.15, 0.15] # train / val / test
