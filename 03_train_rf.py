@@ -10,8 +10,20 @@ with open(config_path, "r") as f:
     cfg = yaml.safe_load(f)
 
 cases   = ["nmos_on", "nmos_off", "pmos_on", "pmos_off"]
-inputs  = ["vdd", "temp", "w", "vd", "vs", "vg", "vb", "vth0", "toxe", "ndep", "u0", "xj"]
+# Terminal-relative voltages replace the absolute vd/vs/vg/vb (which are correlated with them)
+inputs  = ["vdd", "temp", "w", "vgs", "vds", "vbs", "vth0", "toxe", "ndep", "u0", "xj"]
 outputs = ["id", "ig", "is", "ib"]
+
+
+inputs_raw = ["vdd", "temp", "w", "vd", "vs", "vg", "vb", "vth0", "toxe", "ndep", "u0", "xj"]
+
+
+def add_voltage_features(d):
+    d = d.copy()
+    d["vgs"] = d["vg"] - d["vs"]
+    d["vds"] = d["vd"] - d["vs"]
+    d["vbs"] = d["vb"] - d["vs"]
+    return d.drop(columns=["vd", "vs", "vg", "vb"])
 
 
 def tune_param(param_name, candidates):
@@ -52,6 +64,9 @@ for case in cases:
     # 1. Load data and split
     df    = pd.read_csv(f"data/transistor/{case}.csv")
     split = pd.read_csv(f"data/transistor/split_{case}.csv")
+
+    # targets are read from the raw columns; features use vgs/vds/vbs instead of vd/vs/vg/vb
+    df = pd.concat([add_voltage_features(df[inputs_raw]), df[outputs]], axis=1)
 
     train = df[split["set"] == "train"]
     val   = df[split["set"] == "val"]
