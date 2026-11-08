@@ -11,3 +11,4 @@ joblib>=1.5
 pyyaml>=6.0
 tqdm>=4.67
 ipykernel
+pytest>=9.0
