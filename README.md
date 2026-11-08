@@ -29,8 +29,8 @@ Configured in [`config.yaml`](config.yaml).
 | 0 | Setup and toolchain validation | n/a | (local only) | ✅ done |
 | 1 | Transistor dataset generation (4 × 10k samples) | A.1 | `01_gen_transistor_data.py` | ✅ done (4 × 10,000 samples) |
 | 2 | Data checks: Kirchhoff + 3 trend plots | A.1 / deliverable 3 | `02_data_checks.py` | ✅ done |
-| 3 | ML models: 4 model types × 4 cases, select, test | A.2 / deliverables 4–5 | `03_train_models.py` | ⬜ |
-| 4 | 200 shared corners + gate SPICE reference (18 cases) | B.3 | `04_gen_corners.py`, `05_gate_spice.py` | ⬜ |
+| 3 | ML models: 4 model types × 4 cases, select, test | A.2 / deliverables 4–5 | `03_make_split.py`, `03_train_mlp.py`, `03_train_poly_ridge.py` | 🟨 MLP, polynomial ridge done (validation) |
+| 4 | 200 shared corners + gate SPICE reference (18 cases) | B.3 | `04_gen_corners.py`, `05_gate_spice.py` | ✅ done (3,600 simulations) |
 | 5 | Gate-level ML prediction and comparison | B.4–5 / deliverables 6–7 | `06_gate_ml.py` | ⬜ |
 | 6 | Test circuit: SPICE + hierarchical ML | C.6–8 / deliverable 8 | `07_circuit_spice.py`, `08_circuit_ml.py` | ⬜ |
 | 7 | Figures, tables, report | deliverables 9–10 | `09_figures_tables.py`, `report/` | ⬜ |
@@ -54,9 +54,11 @@ config.yaml            assignment, sampling ranges, seeds (single source of trut
 src/config.py          config loader + model-card parser (nominal vth0, toxe, ndep, u0, xj)
 src/sampling.py        random draws per spec section 4
 src/spice.py           applies each sample to the hand-written netlists, runs ngspice, reads currents
+src/poly_ridge.py      polynomial ridge transistor model (features, PolyRidgeFET class)
 models/                PTM BSIM4 model cards
 reference/             spec, slides, TA example netlist
 netlists/transistor/   hand-written single-transistor netlists, one per case (deliverable 2)
+netlists/gates/        hand-written gate netlists: inv, nand2, nor2, and2, or2 (deliverable 2)
 data/ results/ figures/ saved_models/ report/   generated outputs
 ```
 
@@ -86,3 +88,22 @@ of the 10,000 sampled rows in turn and runs ngspice once per row.
   equivalent simulations (most affected: PMOS OFF Ig, PMOS ON/OFF Ib).
 - **Netlist options** (spec): `.options gmin=1e-18 abstol=1e-18 reltol=1e-6 vntol=1e-9`.
   The TA example netlist (`reference/22n_NMOS_ON.net`) uses older options and is kept only for reference.
+
+## Gate SPICE reference (Phase 4)
+
+- **Corners:** `04_gen_corners.py` draws 200 corners (VDD, T, one NMOS and one PMOS process draw;
+  seed `gates.seed`) into `data/gates/corners.csv`. Phase 6 reuses the same file.
+- **Widths** (not set by the spec, `gates.widths_lmin`, Wmin = Lmin = 32 nm): INV n = 1, p = 2;
+  NAND2 n = 2, p = 2; NOR2 n = 1, p = 4 (× Lmin). AND2 / OR2 use NAND2 / NOR2 + INV sizes.
+  NAND2: A drives the NMOS at the output, B the NMOS at ground. NOR2: A drives the PMOS at VDD.
+- **Junction geometry** as in the transistor netlists, so the gates match the training data.
+- **Leakage** = static power / VDD = current delivered by the VDD supply + currents delivered by the
+  inputs held at VDD (`leak` in `data/gates/gate_spice.csv`); `i_vdd`, `i_a`, `i_b` are stored too.
+- **Simulator:** Phase 4 ran with ngspice-42 (Linux). Re-simulating 1,200 dataset rows with it gave
+  currents identical to the ngspice-47 dataset except at the ~1e-16 A noise floor.
+
+## Polynomial ridge model (Phase 3)
+
+`03_train_poly_ridge.py` (~12 min on 22 cores) saves `saved_models/poly_ridge/<case>.joblib`.
+Load with `joblib.load(...)` from the repo root (the class lives in `src/poly_ridge.py`);
+`model.predict(df)` takes the dataset input columns and returns Id, Ig, Is, Ib [A] (n × 4).
