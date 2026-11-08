@@ -27,3 +27,6 @@ transistor_data:
 split:
   seed: 42
   fractions: [0.70, 0.15, 0.15] # train / val / test
+
+rf:
+  seed: 2026
