@@ -24,6 +24,7 @@ from .config import NETLIST_DIR, Config
 NGSPICE = shutil.which("ngspice") or "ngspice"
 SAMPLE_PARAMS = ["vdd", "temp", "w", "vd", "vs", "vth0", "toxe", "ndep", "u0", "xj"]
 _PRINT_RE = re.compile(r"^\s*i\(v[dgsb]\)\s*=\s*(\S+)", re.IGNORECASE)
+_VALUE_RE = re.compile(r"^\s*([vi]\(\w+\))\s*=\s*(\S+)", re.IGNORECASE)
 
 
 def ngspice_version() -> str:
@@ -32,13 +33,30 @@ def ngspice_version() -> str:
     return m.group(0) if m else "unknown"
 
 
-def apply_sample(netlist: str, row: pd.Series) -> str:
-    """Replace each `name=value` of SAMPLE_PARAMS in the `.param` lines with the row's value."""
-    for name in SAMPLE_PARAMS:
-        netlist, n = re.subn(rf"(?m)^(\.param\b.*?\b{name}=)\S+", rf"\g<1>{row[name]:.12e}", netlist)
+def apply_params(netlist: str, values: dict[str, float]) -> str:
+    """Replace each `name=value` in the `.param` lines with values[name]."""
+    for name, value in values.items():
+        netlist, n = re.subn(rf"(?m)^(\.param\b.*?\b{name}=)\S+", rf"\g<1>{value:.12e}", netlist)
         if n != 1:
             raise ValueError(f"expected exactly one .param '{name}=' in the netlist, found {n}")
     return netlist
+
+
+def apply_sample(netlist: str, row: pd.Series) -> str:
+    """Replace each `name=value` of SAMPLE_PARAMS in the `.param` lines with the row's value."""
+    return apply_params(netlist, {name: row[name] for name in SAMPLE_PARAMS})
+
+
+def run_print(netlist: str, cwd: Path) -> dict[str, float]:
+    """Run one netlist from stdin and return every printed `name = value` line, e.g.
+    {"v(out)": .., "i(vdd)": ..} (names lower-case, values as printed by ngspice)."""
+    res = subprocess.run([NGSPICE, "-b"], input=netlist, capture_output=True, text=True, cwd=cwd)
+    out = res.stdout + res.stderr
+    vals = {m.group(1).lower(): float(m.group(2)) for line in out.splitlines()
+            if (m := _VALUE_RE.match(line))}
+    if res.returncode != 0 or not vals:
+        raise RuntimeError(f"ngspice failed (rc={res.returncode}):\n{out[-3000:]}")
+    return vals
 
 
 def run_netlist(netlist: str, cwd: Path) -> np.ndarray:
