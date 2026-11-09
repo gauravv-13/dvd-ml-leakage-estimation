@@ -32,7 +32,7 @@ Configured in [`config.yaml`](config.yaml).
 | 3 | ML models: 4 model types × 4 cases, select, test | A.2 / deliverables 4–5 | `03_make_split.py`, `03_train_mlp.py`, `03_train_xgboost.py`, `03_train_poly_ridge.py`, `03_train_rf.py`, `03_select_and_test.py` | ✅ done (MLP for NMOS ON/OFF, PMOS ON; XGBoost for PMOS OFF) |
 | 4 | 200 shared corners + gate SPICE reference (18 cases) | B.3 | `04_gen_corners.py`, `05_gate_spice.py` | ✅ done (3,600 simulations) |
 | 5 | Gate-level ML prediction and comparison | B.4–5 / deliverables 6–7 | `06_gate_ml.py` | ⬜ |
-| 6 | Test circuit: SPICE + hierarchical ML | C.6–8 / deliverable 8 | `07_circuit_spice.py`, `08_circuit_ml.py` | ⬜ |
+| 6 | Test circuit: SPICE + hierarchical ML | C.6–8 / deliverable 8 | `07_circuit_spice.py`, `08_circuit_ml.py` | 🟨 SPICE reference done (51,200 simulations) |
 | 7 | Figures, tables, report | deliverables 9–10 | `09_figures_tables.py`, `report/` | ⬜ |
 
 Scripts run in numeric order. All randomness comes from seeds in `config.yaml`.
@@ -57,10 +57,12 @@ src/spice.py           applies each sample to the hand-written netlists, runs ng
 src/mlp_model.py       MLP transistor model (MLPFET class, saved by 03_train_mlp.py)
 src/xgb_model.py       XGBoost transistor model (features, XGBFET class, saved by 03_train_xgboost.py)
 src/poly_ridge.py      polynomial ridge transistor model (features, PolyRidgeFET class)
+src/circuit.py         test-circuit gate list (read from the netlist) and logic; writes data/circuit/gates.csv
 models/                PTM BSIM4 model cards
 reference/             spec, slides, TA example netlist
 netlists/transistor/   hand-written single-transistor netlists, one per case (deliverable 2)
 netlists/gates/        hand-written gate netlists: inv, nand2, nor2, and2, or2 (deliverable 2)
+netlists/circuit/      hand-written test-circuit netlist: parity8.cir, 28 NAND2, out = 1 for an odd number of 1s (deliverable 2)
 data/ results/ figures/ saved_models/ report/   generated outputs
 ```
 
