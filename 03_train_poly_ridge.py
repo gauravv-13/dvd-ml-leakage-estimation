@@ -3,7 +3,7 @@
 Per case (nmos_on, nmos_off, pmos_on, pmos_off), one PolyRidgeFET (src/poly_ridge.py) made of three
 polynomial ridge regressions, on log scale, of D/Vds = (Id - Is)/(Vd - Vs), Ig and Ib; Id and Is
 follow from D and Kirchhoff (Id + Ig + Is + Ib = 0).
-  Inputs  : the dataset input columns, turned into 16 features in a symmetric NMOS-like frame
+  Inputs  : the dataset input columns, turned into 20 features in a symmetric NMOS-like frame
             (10 base + 10 physics-based, see src/poly_ridge.py), standardised on the training set
   Model   : StandardScaler -> PolynomialFeatures(degree) -> StandardScaler -> Ridge(alpha)
   Search  : degree in DEGREES x alpha in ALPHAS x junction feature fjun on/off, chosen separately

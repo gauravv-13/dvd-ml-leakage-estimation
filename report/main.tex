@@ -97,7 +97,7 @@ once per sample (about 2 minutes for all 40,000 runs, 8 parallel processes). Fur
         a multi-parameter \texttt{altermod} line in ngspice silently applies only the first one.
         A sensitivity test confirmed that all five parameters reach the simulator.
   \item \textbf{Junction geometry:} $AD = AS = W L_{\mathrm{diff}}$, $PD = PS = 2(W + L_{\mathrm{diff}})$ with
-        $L_{\mathrm{diff}} = 2L_{\min}$ (as in the TA example netlist). Only $I_b$ depends on it.
+        $L_{\mathrm{diff}} = 2L_{\min}$ (required by the TA; the TA example netlist defines $L_{\mathrm{diff}}$). Only $I_b$ depends on it.
   \item \textbf{Sign convention:} every stored current flows \emph{into} the device terminal
         ($I = -\,\texttt{i(Vsource)}$). \texttt{set numdgt=12} is used so that printed currents
         are not rounded to 6 digits.
@@ -109,7 +109,7 @@ is stored as a file per case and shared by all four model types, so every model 
 tuned and tested on exactly the same rows. Tuning used the validation set only; the test set is
 used only for the chosen model.
 
-\subsection{Data check}
+\subsection{Data check}\label{sec:kcl}
 \paragraph{Kirchhoff check.} Table~\ref{tab:kcl} lists $|I_d + I_g + I_s + I_b|$ per case.
 The residual of about \SI{1e-16}{A} comes from the gate and substrate resistance networks
 enabled in the PTM card (\texttt{rgatemod=1}, \texttt{rbodymod=1}); with both switched off the
@@ -154,18 +154,20 @@ a nominal sweep would suggest because the random $V_s$ often gives a small $|V_{
 \section{Models}
 
 \subsection{Common preprocessing and metrics}
-All four model types use the same conventions:
+All four model types are trained on the same training split and scored on the same validation
+split with the same metrics. Each model type chooses its own target scale (given with each model
+below), but every model's predictions are converted back to amperes before scoring.
 \begin{itemize}
-  \item \textbf{Target scale:} each current is predicted as $\operatorname{asinh}(I / \SI{1e-18}{A})$
-        instead of $I$. Currents span 6--13 decades and many change sign (about half of $I_d/I_s$
-        in the ON cases are negative), so $\log|I|$ would lose the sign. Above about \SI{1e-17}{A},
+  \item \textbf{Scale:} currents span 6--13 decades and many change sign (about half of $I_d/I_s$
+        in the ON cases are negative), so $\log|I|$ would lose the sign. The common scale used for
+        $R^2$ is therefore $\operatorname{asinh}(I / \SI{1e-18}{A})$: above about \SI{1e-17}{A},
         $\operatorname{asinh}(I/I_0) \approx \operatorname{sign}(I)\ln(2|I|/I_0)$, i.e.\ a
         sign-preserving log.
   \item \textbf{Error:} relative error $|I_{\mathrm{pred}}-I_{\mathrm{SPICE}}|/|I_{\mathrm{SPICE}}|\times100\,\%$, reported as
         the median and 95th percentile per current, on all rows (noise-floor currents included).
   \item \textbf{$R^2$} is computed on the $\operatorname{asinh}(I/\SI{1e-18}{A})$ scale. On a log-like
-        scale even mediocre fits score above 0.99, so models are ranked on median and p95 error;
-        $R^2$ is a secondary check.
+        scale even mediocre fits score above 0.99, so models are compared on the median and p95 error
+        (the choice rule is in Section~\ref{sec:choice}); $R^2$ is a secondary check.
 \end{itemize}
 
 \subsection{Model types}
@@ -206,9 +208,38 @@ to 0.7\,\%, the junction features took NMOS OFF $I_g$ from 1.1\,\% to 0.1\,\%. C
 (2 for PMOS OFF $I_b$); all settings are in \texttt{results/poly\_ridge\_validation.csv}, the full
 sweep in \texttt{results/poly\_ridge\_sweep.csv}.
 
-\paragraph{Model type 3.} \pending{teammate's model, main hyperparameters, preprocessing}
+\paragraph{Gradient-boosted trees (XGBoost).} Four boosters per case. Instead of $I_d$ and $I_s$
+directly, the model predicts $I_{ch} = (I_d - I_s)/2$ and $I_{cm} = (I_d + I_s)/2$, plus $I_g$ and $I_b$,
+each as $\operatorname{asinh}\bigl(I / (\SI{1e-18}{A}\cdot W/L_{\min})\bigr)$; $I_{ch}$ is multiplied by
+$\operatorname{sign}(V_d - V_s)$ so it does not jump where $V_d - V_s$ crosses 0. Then $I_d = I_{cm} + I_{ch}$ and
+$I_s = I_{cm} - I_{ch}$. $I_{cm}$ has its own booster instead of $-(I_g+I_b)/2$ because the PMOS OFF
+$I_g$ and $I_b$ labels carry the $\sim\SI{1e-16}{A}$ simulator noise.
+Features (31): the 10 inputs other than $V_d$ and $V_s$, and $1/T$; drain and source only through
+$V_{lo} = \min(V_d, V_s)$ and $V_{hi} = \max(V_d, V_s)$, since swapping them mirrors the device; the gap
+$V_{hi}-V_{lo}$ and $\ln(1 - e^{-(V_{hi}-V_{lo})/V_T})$; $V_g - V$ and $V_b - V$ at each end, also divided by
+$V_T$ (overdrive $(V_g - V - v_{th0})/V_T$) and by $t_{oxe}$ (oxide field, plus $(V_g - V_b)/t_{oxe}$);
+$\ln W$, $\ln t_{oxe}$, $\ln N_{dep}$, $\ln u_0$ and $v_{th0}/V_T$.
+Each booster starts from a least-squares line through the features (\texttt{base\_margin}) and the
+trees fit what it leaves over. Settings: 6{,}000 rounds, learning rate 0.015, depth 6, row and
+column subsampling 0.8, seed 42, 2 threads. NMOS ON/OFF and PMOS ON: squared-error loss,
+min.\ child weight 5, $\lambda = 5$. PMOS OFF: absolute-error (L1) loss, min.\ child weight 1,
+$\lambda = 1$, because squared error averages the mixed signs of its noisy $I_g$/$I_b$ labels towards 0
+while L1 follows the median. These settings were chosen on the validation set.
+XGBoost results depend slightly on the machine; with the version pinned (3.2.0) and a fixed thread
+count, repeated runs on one machine are identical. All numbers here come from one machine.
 
-\paragraph{Model type 4.} \pending{teammate's model, main hyperparameters, preprocessing}
+\paragraph{Random forest (scikit-learn).} One multi-output \texttt{RandomForestRegressor} per case
+predicts all four currents as $\operatorname{asinh}(I/\SI{1e-18}{A})$. Inputs (11): $V_{DD}$, $T$, $W$,
+$V_{gs}$, $V_{ds}$, $V_{bs}$ and the five process parameters (the terminal-relative voltages replace
+the absolute $V_d, V_s, V_g, V_b$); trees need no standardisation. Hyperparameters were tuned one
+at a time, in this order, each keeping the value with the best mean validation $R^2$:
+\texttt{max\_features} $\in\{3, 4, 6, 0.5, 1.0\}$, \texttt{n\_estimators} $\in\{10, 50, 100, 200\}$,
+\texttt{max\_depth} $\in\{8, 12, 16, 20, \text{none}\}$, \texttt{min\_samples\_leaf} $\in\{1, 2, 5, 10\}$;
+seed 2026. Chosen: 200 trees in every case; depth 12 / none / 20 / 12, \texttt{max\_features}
+1.0 / 6 / 6 / 0.5 and \texttt{min\_samples\_leaf} 1 / 1 / 1 / 5 for NMOS ON / NMOS OFF / PMOS ON /
+PMOS OFF. Its median errors are 35--91\,\%: a forest predicts a piecewise-constant average of
+training labels, which cannot follow currents that change exponentially with voltage, and the
+$R^2$ used for tuning is high (above 0.9 for $I_d$, $I_s$) even at these errors.
 
 \subsection{Model comparison (validation set)}
 Table~\ref{tab:cmp} gives the median error, p95 error and $R^2$ for each current, in the order
@@ -217,33 +248,94 @@ $I_d / I_g / I_s / I_b$.
 \begin{table}[!htbp]
 \centering
 \footnotesize
-\caption{Validation-set comparison (4 model types $\times$ 4 cases). Errors in \%;
-$R^2$ on the $\operatorname{asinh}(I/\SI{1e-18}{A})$ scale. Each cell: $I_d / I_g / I_s / I_b$.}
+\caption{Validation-set comparison (4 model types $\times$ 4 cases, 1{,}500 validation samples per
+case). Errors in \%; $R^2$ on the $\operatorname{asinh}(I/\SI{1e-18}{A})$ scale. Each cell:
+$I_d / I_g / I_s / I_b$. Source: \texttt{results/model\_comparison.csv}.}
 \label{tab:cmp}
-\setlength{\tabcolsep}{4pt}
+\setlength{\tabcolsep}{3pt}
 \begin{tabular}{llccc}
 \toprule
 Model & Case & Median error (\%) & p95 error (\%) & $R^2$ \\
 \midrule
-MLP & NMOS ON  & 1.02 / 0.33 / 1.03 / 0.47 & 10.3 / 3.2 / 10.6 / 2.7 & .9918 / .9999 / .9916 / 1.000 \\
-    & NMOS OFF & 0.77 / 0.16 / 0.82 / 0.51 & 15.7 / 1.3 / 20.9 / 4.6 & .9878 / 1.000 / .9817 / 1.000 \\
-    & PMOS ON  & 1.03 / 0.30 / 1.03 / 0.48 & 15.4 / 1.5 / 14.6 / 4.3 & .9881 / 1.000 / .9888 / .9998 \\
-    & PMOS OFF & 7.88 / 14.99 / 7.82 / 17.29 & 63.5 / 226.5 / 78.8 / 243.3 & .9847 / .3980 / .9865 / .8186 \\
+MLP         & NMOS ON  & 1.02 / 0.33 / 1.03 / 0.47 & 10.3 / 3.2 / 10.6 / 2.7 & .9918 / .9999 / .9916 / 1.000 \\
+            & NMOS OFF & 0.77 / 0.16 / 0.82 / 0.51 & 15.7 / 1.3 / 20.9 / 4.6 & .9878 / 1.000 / .9817 / 1.000 \\
+            & PMOS ON  & 1.03 / 0.30 / 1.03 / 0.48 & 15.4 / 1.5 / 14.6 / 4.3 & .9881 / 1.000 / .9888 / .9998 \\
+            & PMOS OFF & 7.88 / 14.99 / 7.82 / 17.29 & 63.5 / 226.5 / 78.8 / 243.3 & .9847 / .3980 / .9865 / .8185 \\
+\midrule
+XGBoost     & NMOS ON  & 3.38 / 0.94 / 3.38 / 5.67 & 17.1 / 5.9 / 17.1 / 19.0 & .9992 / .9997 / .9989 / .9989 \\
+            & NMOS OFF & 2.93 / 0.36 / 3.07 / 1.63 & 32.8 / 1.5 / 36.6 / 17.9 & .9671 / .9999 / .9610 / .9998 \\
+            & PMOS ON  & 3.43 / 2.06 / 3.43 / 6.04 & 15.1 / 9.0 / 15.3 / 22.0 & .9993 / .9997 / 1.000 / .9986 \\
+            & PMOS OFF & 6.58 / 16.72 / 6.22 / 13.53 & 43.8 / 167.4 / 42.5 / 175.6 & .9941 / .4846 / .9969 / .8495 \\
 \midrule
 Poly. ridge & NMOS ON  & 0.32 / 2.00 / 0.32 / 5.13 & 1.8 / 14.2 / 1.8 / 18.7 & .9997 / .9988 / 1.000 / .9989 \\
             & NMOS OFF & 3.61 / 0.10 / 3.98 / 8.71 & 54.6 / 0.7 / 52.1 / 30.5 & .9540 / 1.000 / .9742 / .9994 \\
             & PMOS ON  & 0.20 / 0.18 / 0.20 / 6.81 & 0.8 / 1.0 / 0.8 / 21.6 & 1.000 / 1.000 / 1.000 / .9984 \\
             & PMOS OFF & 14.75 / 22.15 / 14.96 / 29.90 & 139.0 / 267.7 / 140.4 / 449.7 & .9849 / .3993 / .9884 / .6963 \\
 \midrule
-Type 3 & all & \multicolumn{3}{c}{\pending{results}} \\
-Type 4 & all & \multicolumn{3}{c}{\pending{results}} \\
+Random      & NMOS ON  & 44.30 / 73.76 / 44.19 / 53.61 & 286.5 / 710.3 / 281.1 / 365.6 & .9989 / .7372 / .9987 / .9069 \\
+forest      & NMOS OFF & 76.32 / 77.25 / 73.10 / 34.98 & 419.7 / 700.2 / 527.1 / 164.8 & .9366 / .4426 / .9530 / .9891 \\
+            & PMOS ON  & 48.01 / 67.45 / 48.05 / 55.04 & 302.7 / 567.8 / 311.4 / 368.9 & .9989 / .8753 / .9992 / .9072 \\
+            & PMOS OFF & 73.86 / 90.78 / 74.37 / 83.24 & 479.6 / 642.2 / 739.6 / 155.8 & .9419 / .1976 / .9603 / .8584 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{Final choice and test-set results}
-\pending{chosen model per case with the reason, test-set median / p95 error, predicted-vs-SPICE
-plot per case.}
+\subsection{Final choice and test-set results}\label{sec:choice}
+\textbf{Rule.} For each case, the chosen model type is the one with the lowest validation median
+error averaged over $I_d, I_g, I_s, I_b$; the averaged p95 error is checked next to it. Only the
+validation set is used for the choice; the test set is used once, afterwards, on the chosen models.
+
+\textbf{Choice} (validation, mean of the four medians / mean of the four p95):
+\begin{itemize}
+  \item \textbf{NMOS ON, NMOS OFF, PMOS ON: MLP} (0.71 / 6.7\,\%, 0.57 / 10.6\,\%, 0.71 / 9.0\,\%). Its median
+        error is 2.6--3.5 times lower than the next model's. Polynomial ridge has the lower p95 for
+        PMOS ON (6.1\,\%) but a 2.6 times higher median (1.85\,\%), so the MLP is kept.
+  \item \textbf{PMOS OFF: XGBoost} (10.8 / 107\,\%, against 12.0 / 153\,\% for the MLP), best on both
+        measures. All models are weakest here: about 60\,\% of the PMOS OFF $I_g$ and half of its $I_b$
+        values lie below \SI{1e-15}{A}, at the simulator noise floor (Section~\ref{sec:kcl}).
+\end{itemize}
+The four chosen models are \texttt{saved\_models/mlp/\{nmos\_on, nmos\_off, pmos\_on\}.joblib} and
+\texttt{saved\_models/xgboost/pmos\_off.joblib} (\texttt{results/chosen\_models.csv}); before the test
+run, each saved file is checked to reproduce its validation errors.
+
+\begin{table}[!htbp]
+\centering
+\footnotesize
+\caption{Chosen models on the test set (1{,}500 samples per case, not used for training or choice).
+Errors in \%; each cell $I_d / I_g / I_s / I_b$, then the mean of the four.
+Source: \texttt{results/test\_results.csv}.}
+\label{tab:test}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llcccc}
+\toprule
+Case & Model & Median error (\%) & mean & p95 error (\%) & mean \\
+\midrule
+NMOS ON  & MLP & 1.09 / 0.31 / 1.08 / 0.48 & 0.74 & 13.8 / 3.4 / 13.2 / 2.8 & 8.3 \\
+NMOS OFF & MLP & 0.80 / 0.17 / 0.84 / 0.50 & 0.58 & 18.4 / 1.3 / 14.6 / 5.2 & 9.9 \\
+PMOS ON  & MLP & 1.00 / 0.30 / 0.99 / 0.50 & 0.70 & 9.2 / 1.6 / 9.3 / 6.1 & 6.5 \\
+PMOS OFF & XGBoost & 5.96 / 19.73 / 6.12 / 13.87 & 11.42 & 34.3 / 228.5 / 32.8 / 189.4 & 121.2 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The test errors are close to the validation errors (mean median 0.74 vs 0.71\,\%, 0.58 vs 0.57\,\%,
+0.70 vs 0.71\,\% and 11.4 vs 10.8\,\%), so the choice made on the validation set did not overfit it.
+Figure~\ref{fig:testplots} plots predicted against SPICE currents on the test set. The large errors
+are at small currents. For PMOS OFF, 54 of the 59 $I_d$/$I_s$ errors above 100\,\% and every
+prediction with the wrong sign (432, mostly $I_g$ and $I_b$) are at SPICE currents below about
+\SI{1.3e-15}{A}, i.e.\ at the noise floor. For the ON cases, 41 of the 43 $I_d$/$I_s$ errors above
+100\,\% are samples with $|V_d - V_s| < \SI{20}{mV}$, where the channel current is small and changes sign.
+
+\begin{figure}[!htbp]
+\centering
+\begin{subfigure}{0.49\linewidth}\includegraphics[width=\linewidth]{test_pred_vs_spice_nmos_on.png}\caption{NMOS ON (MLP)}\end{subfigure}
+\begin{subfigure}{0.49\linewidth}\includegraphics[width=\linewidth]{test_pred_vs_spice_nmos_off.png}\caption{NMOS OFF (MLP)}\end{subfigure}
+\begin{subfigure}{0.49\linewidth}\includegraphics[width=\linewidth]{test_pred_vs_spice_pmos_on.png}\caption{PMOS ON (MLP)}\end{subfigure}
+\begin{subfigure}{0.49\linewidth}\includegraphics[width=\linewidth]{test_pred_vs_spice_pmos_off.png}\caption{PMOS OFF (XGBoost)}\end{subfigure}
+\caption{Predicted vs SPICE terminal currents of the chosen models on the test set, $|I|$ on log
+axes; red crosses: predicted sign opposite to SPICE.}
+\label{fig:testplots}
+\end{figure}
 
 \section{Gate results}
 \pending{Phases 4--5: gate results table (18 cases: SPICE median, ML median, bias, median error,

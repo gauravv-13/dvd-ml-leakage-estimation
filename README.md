@@ -29,7 +29,7 @@ Configured in [`config.yaml`](config.yaml).
 | 0 | Setup and toolchain validation | n/a | (local only) | ✅ done |
 | 1 | Transistor dataset generation (4 × 10k samples) | A.1 | `01_gen_transistor_data.py` | ✅ done (4 × 10,000 samples) |
 | 2 | Data checks: Kirchhoff + 3 trend plots | A.1 / deliverable 3 | `02_data_checks.py` | ✅ done |
-| 3 | ML models: 4 model types × 4 cases, select, test | A.2 / deliverables 4–5 | `03_make_split.py`, `03_train_mlp.py`, `03_train_poly_ridge.py` | 🟨 MLP, polynomial ridge done (validation) |
+| 3 | ML models: 4 model types × 4 cases, select, test | A.2 / deliverables 4–5 | `03_make_split.py`, `03_train_mlp.py`, `03_train_xgboost.py`, `03_train_poly_ridge.py`, `03_train_rf.py`, `03_select_and_test.py` | ✅ done (MLP for NMOS ON/OFF, PMOS ON; XGBoost for PMOS OFF) |
 | 4 | 200 shared corners + gate SPICE reference (18 cases) | B.3 | `04_gen_corners.py`, `05_gate_spice.py` | ✅ done (3,600 simulations) |
 | 5 | Gate-level ML prediction and comparison | B.4–5 / deliverables 6–7 | `06_gate_ml.py` | ⬜ |
 | 6 | Test circuit: SPICE + hierarchical ML | C.6–8 / deliverable 8 | `07_circuit_spice.py`, `08_circuit_ml.py` | ⬜ |
@@ -54,6 +54,8 @@ config.yaml            assignment, sampling ranges, seeds (single source of trut
 src/config.py          config loader + model-card parser (nominal vth0, toxe, ndep, u0, xj)
 src/sampling.py        random draws per spec section 4
 src/spice.py           applies each sample to the hand-written netlists, runs ngspice, reads currents
+src/mlp_model.py       MLP transistor model (MLPFET class, saved by 03_train_mlp.py)
+src/xgb_model.py       XGBoost transistor model (features, XGBFET class, saved by 03_train_xgboost.py)
 src/poly_ridge.py      polynomial ridge transistor model (features, PolyRidgeFET class)
 models/                PTM BSIM4 model cards
 reference/             spec, slides, TA example netlist
@@ -107,3 +109,23 @@ of the 10,000 sampled rows in turn and runs ngspice once per row.
 `03_train_poly_ridge.py` (~12 min on 22 cores) saves `saved_models/poly_ridge/<case>.joblib`.
 Load with `joblib.load(...)` from the repo root (the class lives in `src/poly_ridge.py`);
 `model.predict(df)` takes the dataset input columns and returns Id, Ig, Is, Ib [A] (n × 4).
+
+## Chosen transistor models (Phase 3)
+
+`03_select_and_test.py` (run after the four model scripts) builds the validation comparison
+(`results/model_comparison.csv`), chooses per case the model type with the lowest validation median
+error averaged over Id, Ig, Is, Ib (`results/chosen_models.csv`), and only then scores the chosen
+models on the test set (`results/test_results.csv`, `figures/test_pred_vs_spice_<case>.png`).
+
+| Case | Chosen | Saved model |
+|---|---|---|
+| NMOS ON | MLP | `saved_models/mlp/nmos_on.joblib` |
+| NMOS OFF | MLP | `saved_models/mlp/nmos_off.joblib` |
+| PMOS ON | MLP | `saved_models/mlp/pmos_on.joblib` |
+| PMOS OFF | XGBoost | `saved_models/xgboost/pmos_off.joblib` |
+
+Every saved model has `model.predict(df)`: `df` holds the dataset input columns
+(`vdd, temp, w, vd, vs, vg, vb, vth0, toxe, ndep, u0, xj`), the result is an (n, 4) array of
+Id, Ig, Is, Ib [A] (current into each terminal). Load with `joblib.load(...)` from the repo root.
+A script that uses the MLP and XGBoost models together must `import xgboost` first and call
+`torch.set_num_threads(1)`; otherwise their two OpenMP libraries crash the process on macOS.
