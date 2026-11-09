@@ -343,8 +343,24 @@ p95 error), gate parity plot on log axes, and comment on the most and least accu
 input combinations.}
 
 \section{Test-circuit results}
-The 8-bit parity checker is built only from gates that have ML models: each XOR2 is four NAND2
-gates, and the 7 XOR2 gates form a tree over the 8 inputs.
+The 8-bit parity checker (\texttt{netlists/circuit/parity8.cir}) is built only from a gate that
+has ML models: 28 NAND2, 112 transistors. Each XOR2 is four NAND2 gates,
+$a \oplus b = \overline{\overline{a\,n_1}\cdot\overline{b\,n_1}}$ with $n_1 = \overline{ab}$; seven XOR2
+form a balanced tree over the inputs $in_0 \dots in_7$ (three levels), giving the output
+$out = in_0 \oplus \dots \oplus in_7$ (1 for an odd number of 1s). Transistor widths, junction
+geometry and pin order are those of the NAND2 gate netlist ($n = p = 2L_{\min}$), and the
+spec's \texttt{.options} line is included. The gate list used by the hierarchical ML prediction
+(\texttt{data/circuit/gates.csv}) is read from the netlist itself, so the two cannot differ.
+At the nominal corner, every one of the 28 gate outputs settles within $3\times10^{-5}\,V_{DD}$
+of its logic value for all 256 input vectors.
+SPICE reference (\texttt{07\_circuit\_spice.py}): all 256 input vectors at the same 200 corners as
+Part~B (51{,}200 simulations), with the leakage defined as for the gates (current delivered by the
+VDD supply plus the currents delivered by the inputs held at VDD). Every output was within
+$8\times10^{-4}\,V_{DD}$ of its logic value and every leakage positive; the median leakage per vector
+ranges from \SI{79}{nA} to \SI{97}{nA}. As a check of the composition itself, summing the gate-level
+SPICE leakages of Part~B over the 28 gates reproduces the circuit SPICE leakage with a median error
+of 0.03\,\% (p95 0.19\,\%, max 0.48\,\%): ignoring the loading between gates costs almost nothing here,
+so the hierarchical ML accuracy is set by the gate-level predictions.
 \pending{Phase 6: test-circuit metrics table, parity plot, and comparison with gate-level accuracy.}
 
 \section{Error analysis}

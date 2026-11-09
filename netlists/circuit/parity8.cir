@@ -1,0 +1,87 @@
+* 8-bit parity checker: static leakage at one corner and input vector in7..in0
+* Built only from a gate that has ML models: 28 NAND2.
+*   XOR2(a, b) = NAND(NAND(a, n1), NAND(b, n1)) with n1 = NAND(a, b)   (4 NAND2 per XOR2)
+*   7 XOR2 in a balanced tree over in0..in7 give out = in0 xor in1 xor ... xor in7
+*   (out = 1 if the number of 1s is odd).
+* NAND2 transistors, widths and junction geometry are those of netlists/gates/nand2.cir: the first
+* input (pin a) drives the NMOS at the output, the second (pin b) the NMOS at ground.
+* Gate instances are named X<output net> and listed in that pin order.
+
+.include ../../models/32nm_HP.pm
+.options gmin=1e-18 abstol=1e-18 reltol=1e-6 vntol=1e-9
+
+* Corner (nominal values here; 07_circuit_spice.py replaces them) and input logic values
+.param vdd=0.9 temp=27
+.param nvth0=0.49396 ntoxe=1.15n nndep=4.12e18 nu0=0.05 nxj=10n
+.param pvth0=-0.49155 ptoxe=1.2n pndep=3.07e18 pu0=0.014 pxj=10n
+.param in0=0 in1=0 in2=0 in3=0 in4=0 in5=0 in6=0 in7=0
+.param wn_nand=64n wp_nand=64n ldiff=64n
+.csparam temp={temp} nvth0={nvth0} ntoxe={ntoxe} nndep={nndep} nu0={nu0} nxj={nxj}
+.csparam pvth0={pvth0} ptoxe={ptoxe} pndep={pndep} pu0={pu0} pxj={pxj}
+
+.subckt nand2 a b out vdd
+MPA out a vdd vdd pmos W={wp_nand} L=32n AD={wp_nand*ldiff} AS={wp_nand*ldiff} PD={2*(wp_nand+ldiff)} PS={2*(wp_nand+ldiff)}
+MPB out b vdd vdd pmos W={wp_nand} L=32n AD={wp_nand*ldiff} AS={wp_nand*ldiff} PD={2*(wp_nand+ldiff)} PS={2*(wp_nand+ldiff)}
+MNA out a x 0 nmos W={wn_nand} L=32n AD={wn_nand*ldiff} AS={wn_nand*ldiff} PD={2*(wn_nand+ldiff)} PS={2*(wn_nand+ldiff)}
+MNB x b 0 0 nmos W={wn_nand} L=32n AD={wn_nand*ldiff} AS={wn_nand*ldiff} PD={2*(wn_nand+ldiff)} PS={2*(wn_nand+ldiff)}
+.ends nand2
+
+* Level 1: p01 = in0 xor in1, p23, p45, p67
+Xp01_1 in0 in1 p01_1 vdd nand2
+Xp01_2 in0 p01_1 p01_2 vdd nand2
+Xp01_3 in1 p01_1 p01_3 vdd nand2
+Xp01 p01_2 p01_3 p01 vdd nand2
+Xp23_1 in2 in3 p23_1 vdd nand2
+Xp23_2 in2 p23_1 p23_2 vdd nand2
+Xp23_3 in3 p23_1 p23_3 vdd nand2
+Xp23 p23_2 p23_3 p23 vdd nand2
+Xp45_1 in4 in5 p45_1 vdd nand2
+Xp45_2 in4 p45_1 p45_2 vdd nand2
+Xp45_3 in5 p45_1 p45_3 vdd nand2
+Xp45 p45_2 p45_3 p45 vdd nand2
+Xp67_1 in6 in7 p67_1 vdd nand2
+Xp67_2 in6 p67_1 p67_2 vdd nand2
+Xp67_3 in7 p67_1 p67_3 vdd nand2
+Xp67 p67_2 p67_3 p67 vdd nand2
+* Level 2: p03 = p01 xor p23, p47 = p45 xor p67
+Xp03_1 p01 p23 p03_1 vdd nand2
+Xp03_2 p01 p03_1 p03_2 vdd nand2
+Xp03_3 p23 p03_1 p03_3 vdd nand2
+Xp03 p03_2 p03_3 p03 vdd nand2
+Xp47_1 p45 p67 p47_1 vdd nand2
+Xp47_2 p45 p47_1 p47_2 vdd nand2
+Xp47_3 p67 p47_1 p47_3 vdd nand2
+Xp47 p47_2 p47_3 p47 vdd nand2
+* Level 3: out = p03 xor p47 (1 if the number of 1s is odd)
+Xout_1 p03 p47 out_1 vdd nand2
+Xout_2 p03 out_1 out_2 vdd nand2
+Xout_3 p47 out_1 out_3 vdd nand2
+Xout out_2 out_3 out vdd nand2
+
+Vdd vdd 0 dc {vdd}
+Vin0 in0 0 dc {in0*vdd}
+Vin1 in1 0 dc {in1*vdd}
+Vin2 in2 0 dc {in2*vdd}
+Vin3 in3 0 dc {in3*vdd}
+Vin4 in4 0 dc {in4*vdd}
+Vin5 in5 0 dc {in5*vdd}
+Vin6 in6 0 dc {in6*vdd}
+Vin7 in7 0 dc {in7*vdd}
+
+.control
+set numdgt=12
+option temp=$&temp
+altermod nmos vth0=$&nvth0
+altermod nmos toxe=$&ntoxe
+altermod nmos ndep=$&nndep
+altermod nmos u0=$&nu0
+altermod nmos xj=$&nxj
+altermod pmos vth0=$&pvth0
+altermod pmos toxe=$&ptoxe
+altermod pmos ndep=$&pndep
+altermod pmos u0=$&pu0
+altermod pmos xj=$&pxj
+op
+print v(out) i(Vdd) i(Vin0) i(Vin1) i(Vin2) i(Vin3) i(Vin4) i(Vin5) i(Vin6) i(Vin7)
+.endc
+.end
