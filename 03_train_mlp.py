@@ -1,12 +1,20 @@
 """Phase 3 (Part A step 2), model type: neural network (MLP, PyTorch). Validation results and saved models.
 
-Per case (nmos_on, nmos_off, pmos_on, pmos_off), one MLP predicts all four currents.
-  Inputs  : the 12 input columns of the dataset CSV plus 4 derived inputs
-            Vd-Vs, Vg-Vs, Vb-Vs and 1/T (T in kelvin), standardised on the training set
-  Outputs : asinh(I / 1e-18) for Id, Ig, Is, Ib, each standardised on the training set
+Per case (nmos_on, nmos_off, pmos_on, pmos_off), one MLP predicts all four currents
+(src/mlp_model.py, target recipes in src/target_transform.py).
+  Inputs  : the 12 input columns of the dataset CSV plus Vd-Vs, Vg-Vs, Vb-Vs and 1/T (T in kelvin);
+            with the "extra" recipe also Vds/Vt, Vgs/Vt, Vbs/Vt and log10(1 - exp(-|Vds|/Vt) + 1e-12);
+            standardised on the training set
+  Outputs : log10 of the current magnitudes (per recipe, see RECIPES), each standardised, plus a
+            sign output for every current whose sign is not fixed
+  Recipes : chosen per case on the validation set by experiments/target_transforms.py
+            (report appendix "Target-transform study"): canonical drain/source swap, per-width
+            targets, and per case the saturation target, extra inputs, Is from Kirchhoff or clipped
+            labels
   Split   : data/transistor/split_<case>.csv (03_make_split.py); trained on train, scored on val
-  Settings: fixed per case (SETTINGS below); SiLU activations, L1 loss, AdamW,
-            one-cycle learning-rate schedule (peak 3e-3), batch 256, seed 42
+  Settings: fixed per case (SETTINGS below); SiLU activations, L1 loss on the magnitudes plus
+            logistic loss on the signs, AdamW, one-cycle learning-rate schedule (peak 3e-3),
+            batch 256, seed 42
   Metrics (validation, per current, all rows):
             R^2 on asinh(I / 1e-18)
             median and 95th-percentile relative error, |I_pred - I_SPICE| / |I_SPICE| * 100 [%]
@@ -24,18 +32,25 @@ import pandas as pd
 import joblib
 import torch
 from joblib import Parallel, delayed
-from torch import nn
 
 from src.config import CASES, DATA_DIR, RESULTS_DIR, SAVED_MODELS_DIR
-from src.mlp_model import DERIVED, INPUTS, MLPFET, make_net
+from src.mlp_model import MLPFET
 CURRENTS = ["id", "ig", "is", "ib"]
-I_SCALE = 1e-18                       # target = asinh(I / I_SCALE)
+I_SCALE = 1e-18                       # R^2 scale: asinh(I / I_SCALE)
 SEED = 42
 
 COMMON = {"activation": "silu", "loss": "l1", "lr": 3e-3, "batch": 256}
 SMALL = {**COMMON, "width": 128, "depth": 3, "epochs": 6000, "weight_decay": 0.0}
 LARGE = {**COMMON, "width": 256, "depth": 4, "epochs": 3000, "weight_decay": 1e-3}
 SETTINGS = {"nmos_on": SMALL, "pmos_on": SMALL, "nmos_off": LARGE, "pmos_off": LARGE}
+# target recipe per case (flags: src/target_transform.py); names from the transform study
+BASE = {"swap": 1, "perw": 1}
+RECIPES = {
+    "nmos_on":  {**BASE, "sat": 1},                  # T3b
+    "nmos_off": {**BASE, "extra": 1, "kcl": 1},      # T4 on T3a
+    "pmos_on":  {**BASE, "sat": 1},                  # T3b
+    "pmos_off": {**BASE, "extra": 1, "clip": 1},     # T5 on T3a
+}
 
 
 def load(case: str):
@@ -47,25 +62,6 @@ def load(case: str):
     df["vbs"] = df.vb - df.vs
     df["inv_t"] = 1.0 / (df.temp + 273.15)
     return {s: df[split.set.to_numpy() == s] for s in ["train", "val"]}
-
-
-def train_net(X: torch.Tensor, Y: torch.Tensor, s: dict, seed: int) -> nn.Sequential:
-    torch.manual_seed(seed)
-    net = make_net(X.shape[1], s["width"], s["depth"])
-    opt = torch.optim.AdamW(net.parameters(), lr=s["lr"], weight_decay=s["weight_decay"])
-    steps = int(np.ceil(len(X) / s["batch"]))
-    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=s["lr"], epochs=s["epochs"], steps_per_epoch=steps)
-    loss_fn = nn.L1Loss()
-    g = torch.Generator().manual_seed(seed)
-    for _ in range(s["epochs"]):
-        perm = torch.randperm(len(X), generator=g)
-        for i in range(0, len(X), s["batch"]):
-            idx = perm[i:i + s["batch"]]
-            opt.zero_grad()
-            loss_fn(net(X[idx]), Y[idx]).backward()
-            opt.step()
-            sched.step()
-    return net.eval()
 
 
 def metrics(I_true: np.ndarray, y_pred: np.ndarray) -> dict:
@@ -85,29 +81,19 @@ def metrics(I_true: np.ndarray, y_pred: np.ndarray) -> dict:
 
 def run_case(case: str) -> dict:
     torch.set_num_threads(2)
-    s = SETTINGS[case]
+    s, recipe = SETTINGS[case], RECIPES[case]
     d = load(case)
-    F = INPUTS + DERIVED
-    X_tr, X_va = d["train"][F].to_numpy(), d["val"][F].to_numpy()
-    Y_tr = np.arcsinh(d["train"][CURRENTS].to_numpy() / I_SCALE)
-    x_mean, x_std = X_tr.mean(0), X_tr.std(0)
-    x_std[x_std == 0] = 1.0                       # constant column (e.g. vb = 0 for nmos_on)
-    y_mean, y_std = Y_tr.mean(0), Y_tr.std(0)
-    f32 = lambda a: torch.tensor(a, dtype=torch.float32)
-    X, Y, Xv = f32((X_tr - x_mean) / x_std), f32((Y_tr - y_mean) / y_std), f32((X_va - x_mean) / x_std)
-
     t0 = time.time()
-    net = train_net(X, Y, s, SEED)
-    with torch.no_grad():
-        y_pred = net(Xv).numpy() * y_std + y_mean
+    model = MLPFET.fit(case, s, recipe, d["train"], SEED)
     train_seconds = round(time.time() - t0)
+    I_pred = model.predict(d["val"])
 
-    model = MLPFET(case, s, net, x_mean, x_std, y_mean, y_std)
-    assert np.array_equal(model.predict_asinh(d["val"]), y_pred)   # saved model = scored network
     SAVED_MODELS_DIR.joinpath("mlp").mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, SAVED_MODELS_DIR / "mlp" / f"{case}.joblib")
-    return {"model": "MLP", "case": case, **s, "train_seconds": train_seconds,
-            **metrics(d["val"][CURRENTS].to_numpy(), y_pred)}
+    path = SAVED_MODELS_DIR / "mlp" / f"{case}.joblib"
+    joblib.dump(model, path)
+    assert np.array_equal(joblib.load(path).predict(d["val"]), I_pred)   # saved model = scored network
+    return {"model": "MLP", "case": case, **s, "recipe": "+".join(recipe), "train_seconds": train_seconds,
+            **metrics(d["val"][CURRENTS].to_numpy(), np.arcsinh(I_pred / I_SCALE))}
 
 
 def main() -> None:

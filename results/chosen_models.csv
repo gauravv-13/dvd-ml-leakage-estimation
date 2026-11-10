@@ -1,5 +1,5 @@
 case,model,file,val_mean_median_err_pct,val_mean_p95_err_pct
-nmos_on,MLP,saved_models/mlp/nmos_on.joblib,0.7112995626526428,6.719235258025749
-nmos_off,MLP,saved_models/mlp/nmos_off.joblib,0.5659238100051149,10.59832362966502
-pmos_on,MLP,saved_models/mlp/pmos_on.joblib,0.7108897619382208,8.951398541782874
-pmos_off,XGBoost,saved_models/xgboost/pmos_off.joblib,10.761879181429187,107.31292972705042
+nmos_on,MLP,saved_models/mlp/nmos_on.joblib,0.15470177633829746,1.1481075360137936
+nmos_off,MLP,saved_models/mlp/nmos_off.joblib,0.13325940682211637,1.1616262307421885
+pmos_on,MLP,saved_models/mlp/pmos_on.joblib,0.15246689875991856,1.2843977369288802
+pmos_off,MLP,saved_models/mlp/pmos_off.joblib,8.12901238735298,222.37139787428538

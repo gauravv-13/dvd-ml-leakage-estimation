@@ -29,13 +29,17 @@ Configured in [`config.yaml`](config.yaml).
 | 0 | Setup and toolchain validation | n/a | (local only) | ✅ done |
 | 1 | Transistor dataset generation (4 × 10k samples) | A.1 | `01_gen_transistor_data.py` | ✅ done (4 × 10,000 samples) |
 | 2 | Data checks: Kirchhoff + 3 trend plots | A.1 / deliverable 3 | `02_data_checks.py` | ✅ done |
-| 3 | ML models: 4 model types × 4 cases, select, test | A.2 / deliverables 4–5 | `03_make_split.py`, `03_train_mlp.py`, `03_train_xgboost.py`, `03_train_poly_ridge.py`, `03_train_rf.py`, `03_select_and_test.py` | ✅ done (MLP for NMOS ON/OFF, PMOS ON; XGBoost for PMOS OFF) |
+| 3 | ML models: 4 model types × 4 cases, select, test | A.2 / deliverables 4–5 | `03_make_split.py`, `03_train_mlp.py`, `03_train_xgboost.py`, `03_train_poly_ridge.py`, `03_train_rf.py`, `03_select_and_test.py` | ✅ done (MLP for all four cases) |
 | 4 | 200 shared corners + gate SPICE reference (18 cases) | B.3 | `04_gen_corners.py`, `05_gate_spice.py` | ✅ done (3,600 simulations) |
 | 5 | Gate-level ML prediction and comparison | B.4–5 / deliverables 6–7 | `06_gate_ml.py` | ⬜ |
 | 6 | Test circuit: SPICE + hierarchical ML | C.6–8 / deliverable 8 | `07_circuit_spice.py`, `08_circuit_ml.py` | 🟨 SPICE reference done (51,200 simulations) |
 | 7 | Figures, tables, report | deliverables 9–10 | `09_figures_tables.py`, `report/` | ⬜ |
 
 Scripts run in numeric order. All randomness comes from seeds in `config.yaml`.
+
+Optional, not a pipeline step: `python experiments/target_transforms.py` (~2.5 h, all cores; 94 min
+on a 10-core laptop) then `python experiments/worst_rows.py` regenerate the report appendix
+"Target-transform study" (`results/experiments/`), which chose the MLP target recipes.
 
 ## Setup
 
@@ -55,6 +59,7 @@ src/config.py          config loader + model-card parser (nominal vth0, toxe, nd
 src/sampling.py        random draws per spec section 4
 src/spice.py           applies each sample to the hand-written netlists, runs ngspice, reads currents
 src/mlp_model.py       MLP transistor model (MLPFET class, saved by 03_train_mlp.py)
+src/target_transform.py  MLP target recipes: drain/source swap, log10|I| targets, sign outputs
 src/xgb_model.py       XGBoost transistor model (features, XGBFET class, saved by 03_train_xgboost.py)
 src/poly_ridge.py      polynomial ridge transistor model (features, PolyRidgeFET class)
 src/circuit.py         test-circuit gate list (read from the netlist) and logic; writes data/circuit/gates.csv
@@ -63,6 +68,7 @@ reference/             spec, slides, TA example netlist
 netlists/transistor/   hand-written single-transistor netlists, one per case (deliverable 2)
 netlists/gates/        hand-written gate netlists: inv, nand2, nor2, and2, or2 (deliverable 2)
 netlists/circuit/      hand-written test-circuit netlist: parity8.cir, 28 NAND2, out = 1 for an odd number of 1s (deliverable 2)
+experiments/           optional studies (target_transforms.py, worst_rows.py) -> results/experiments/
 data/ results/ figures/ saved_models/ report/   generated outputs
 ```
 
@@ -124,10 +130,15 @@ models on the test set (`results/test_results.csv`, `figures/test_pred_vs_spice_
 | NMOS ON | MLP | `saved_models/mlp/nmos_on.joblib` |
 | NMOS OFF | MLP | `saved_models/mlp/nmos_off.joblib` |
 | PMOS ON | MLP | `saved_models/mlp/pmos_on.joblib` |
-| PMOS OFF | XGBoost | `saved_models/xgboost/pmos_off.joblib` |
+| PMOS OFF | MLP | `saved_models/mlp/pmos_off.joblib` |
+
+The MLP target recipe of each case (`RECIPES` in `03_train_mlp.py`, flags in
+`src/target_transform.py`) comes from the target-transform study: NMOS ON and PMOS ON T3b,
+NMOS OFF T4 on T3a, PMOS OFF T5 on T3a.
 
 Every saved model has `model.predict(df)`: `df` holds the dataset input columns
 (`vdd, temp, w, vd, vs, vg, vb, vth0, toxe, ndep, u0, xj`), the result is an (n, 4) array of
 Id, Ig, Is, Ib [A] (current into each terminal). Load with `joblib.load(...)` from the repo root.
-A script that uses the MLP and XGBoost models together must `import xgboost` first and call
+All four chosen models are MLPs, so Phase 5 needs no xgboost. A script that uses MLP and XGBoost
+models together (e.g. `03_select_and_test.py`) must `import xgboost` first and call
 `torch.set_num_threads(1)`; otherwise their two OpenMP libraries crash the process on macOS.
