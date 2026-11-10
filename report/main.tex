@@ -159,7 +159,8 @@ split with the same metrics. Each model type chooses its own target scale (given
 below), but every model's predictions are converted back to amperes before scoring.
 \begin{itemize}
   \item \textbf{Scale:} currents span 6--13 decades and many change sign (about half of $I_d/I_s$
-        in the ON cases are negative), so $\log|I|$ would lose the sign. The common scale used for
+        in the ON cases are negative), so $\log|I|$ alone would lose the sign; the models that work
+        on $\log|I|$ (MLP, polynomial ridge) obtain the sign separately. The common scale used for
         $R^2$ is therefore $\operatorname{asinh}(I / \SI{1e-18}{A})$: above about \SI{1e-17}{A},
         $\operatorname{asinh}(I/I_0) \approx \operatorname{sign}(I)\ln(2|I|/I_0)$, i.e.\ a
         sign-preserving log.
@@ -171,13 +172,28 @@ below), but every model's predictions are converted back to amperes before scori
 \end{itemize}
 
 \subsection{Model types}
-\paragraph{MLP (PyTorch).} Inputs: the 12 CSV inputs plus 4 derived features
-($V_d-V_s$, $V_g-V_s$, $V_b-V_s$, $1/T$ in K), standardised on the training set. Outputs: the four
-asinh-scaled currents, each standardised. Fully connected network with SiLU activations, L1 loss,
-AdamW, one-cycle learning-rate schedule (peak $3\times10^{-3}$), batch 256, seed 42.
+\paragraph{MLP (PyTorch).} One network per case predicts all four currents.
+\emph{Targets.} Drain and source are first put in a canonical order: NMOS rows with $V_d < V_s$
+and PMOS rows with $V_s < V_d$ have $V_d/V_s$ and $I_d/I_s$ swapped (gate and body unchanged), and the
+predictions are swapped back. The canonical $I_d$ then always flows in the channel direction (into
+the NMOS drain, out of the PMOS drain), so its sign is fixed. The network predicts
+$\log_{10}(|I|/W)$ of each current, standardised, and, for every current whose sign is not fixed, a
+sign output (logistic loss). The canonical $I_s$ keeps its sign output: in the OFF cases its sign is
+set by a near-cancellation of channel and junction leakage and is opposite to the channel direction
+in 59\,\% of NMOS OFF and 44\,\% of PMOS OFF samples. Per case (chosen on the validation set,
+Appendix~\ref{app:tt}): ON cases divide $I_d$ and $I_s$ also by the subthreshold drain factor,
+target $\log_{10}\bigl(|I| / (W(1-e^{-|V_{ds}|/V_T}))\bigr)$; the OFF cases add four inputs
+($V_{ds}/V_T$, $V_{gs}/V_T$, $V_{bs}/V_T$, $\log_{10}(1-e^{-|V_{ds}|/V_T}+10^{-12})$, $V_T = kT/q$);
+NMOS OFF does not predict $I_s$ but takes $I_s = -(I_d + I_g + I_b)$; PMOS OFF trains on labels
+clipped to $|I| \ge \SI{1e-17}{A}$ (it is still scored against the raw SPICE values).
+\emph{Inputs:} the 12 CSV inputs plus $V_d-V_s$, $V_g-V_s$, $V_b-V_s$ and $1/T$ (T in K), computed after
+the swap and standardised on the training set.
+\emph{Network:} fully connected, SiLU activations, L1 loss on the magnitudes, AdamW, one-cycle
+learning-rate schedule (peak $3\times10^{-3}$), batch 256, seed 42.
 ON cases: $128\times3$ layers, 6,000 epochs, no weight decay; OFF cases: $256\times4$ layers,
 3,000 epochs, weight decay $10^{-3}$.
-These settings came from a two-round search on the validation set (Appendix~\ref{app:mlp}):
+The network settings came from a two-round search on the validation set with the earlier target
+$\operatorname{asinh}(I/\SI{1e-18}{A})$ (Appendix~\ref{app:mlp}) and were kept unchanged:
 L1 loss clearly beat MSE and Huber, SiLU beat tanh and GELU, and a peak LR of 0.01 was worse.
 A first scikit-learn \texttt{MLPRegressor} underfit (6--7\,\% median error at best; it had no
 LR schedule and stopped early); the move to PyTorch with an LR schedule, L1 loss and per-output
@@ -257,10 +273,10 @@ $I_d / I_g / I_s / I_b$. Source: \texttt{results/model\_comparison.csv}.}
 \toprule
 Model & Case & Median error (\%) & p95 error (\%) & $R^2$ \\
 \midrule
-MLP         & NMOS ON  & 1.02 / 0.33 / 1.03 / 0.47 & 10.3 / 3.2 / 10.6 / 2.7 & .9918 / .9999 / .9916 / 1.000 \\
-            & NMOS OFF & 0.77 / 0.16 / 0.82 / 0.51 & 15.7 / 1.3 / 20.9 / 4.6 & .9878 / 1.000 / .9817 / 1.000 \\
-            & PMOS ON  & 1.03 / 0.30 / 1.03 / 0.48 & 15.4 / 1.5 / 14.6 / 4.3 & .9881 / 1.000 / .9888 / .9998 \\
-            & PMOS OFF & 7.88 / 14.99 / 7.82 / 17.29 & 63.5 / 226.5 / 78.8 / 243.3 & .9847 / .3980 / .9865 / .8185 \\
+MLP         & NMOS ON  & 0.12 / 0.16 / 0.12 / 0.22 & 0.9 / 1.6 / 0.9 / 1.2 & .9997 / 1.000 / .9996 / 1.000 \\
+            & NMOS OFF & 0.13 / 0.06 / 0.13 / 0.21 & 1.6 / 0.4 / 1.4 / 1.3 & 1.000 / 1.000 / 1.000 / 1.000 \\
+            & PMOS ON  & 0.13 / 0.12 / 0.14 / 0.23 & 0.7 / 0.5 / 0.7 / 3.2 & .9994 / 1.000 / 1.000 / .9999 \\
+            & PMOS OFF & 3.17 / 14.29 / 3.08 / 11.98 & 24.3 / 332.2 / 22.5 / 510.4 & .9907 / .2043 / .9982 / .7354 \\
 \midrule
 XGBoost     & NMOS ON  & 3.38 / 0.94 / 3.38 / 5.67 & 17.1 / 5.9 / 17.1 / 19.0 & .9992 / .9997 / .9989 / .9989 \\
             & NMOS OFF & 2.93 / 0.36 / 3.07 / 1.63 & 32.8 / 1.5 / 36.6 / 17.9 & .9671 / .9999 / .9610 / .9998 \\
@@ -283,20 +299,26 @@ forest      & NMOS OFF & 76.32 / 77.25 / 73.10 / 34.98 & 419.7 / 700.2 / 527.1 /
 \subsection{Final choice and test-set results}\label{sec:choice}
 \textbf{Rule.} For each case, the chosen model type is the one with the lowest validation median
 error averaged over $I_d, I_g, I_s, I_b$; the averaged p95 error is checked next to it. Only the
-validation set is used for the choice; the test set is used once, afterwards, on the chosen models.
+validation set is used for the choice; the test set is used afterwards, on the chosen models only.
+The test set has been scored twice: first with the earlier MLP targets
+($\operatorname{asinh}(I/\SI{1e-18}{A})$, with XGBoost chosen for PMOS OFF; mean test medians 0.74,
+0.58, 0.70 and 11.42\,\%), then with the present models. The target study that led to the change
+(Appendix~\ref{app:tt}) used only the validation set, so the test rows did not influence it.
 
 \textbf{Choice} (validation, mean of the four medians / mean of the four p95):
 \begin{itemize}
-  \item \textbf{NMOS ON, NMOS OFF, PMOS ON: MLP} (0.71 / 6.7\,\%, 0.57 / 10.6\,\%, 0.71 / 9.0\,\%). Its median
-        error is 2.6--3.5 times lower than the next model's. Polynomial ridge has the lower p95 for
-        PMOS ON (6.1\,\%) but a 2.6 times higher median (1.85\,\%), so the MLP is kept.
-  \item \textbf{PMOS OFF: XGBoost} (10.8 / 107\,\%, against 12.0 / 153\,\% for the MLP), best on both
-        measures. All models are weakest here: about 60\,\% of the PMOS OFF $I_g$ and half of its $I_b$
-        values lie below \SI{1e-15}{A}, at the simulator noise floor (Section~\ref{sec:kcl}).
+  \item \textbf{NMOS ON, NMOS OFF, PMOS ON: MLP} (0.15 / 1.1\,\%, 0.13 / 1.2\,\%, 0.15 / 1.3\,\%). Its median
+        error is 12--15 times lower than the next model's, and its p95 is also the lowest.
+  \item \textbf{PMOS OFF: MLP} (8.1 / 222\,\%, against 10.8 / 107\,\% for XGBoost). The p95 check goes the
+        other way here, and only because of $I_g$ and $I_b$: about 60\,\% of the PMOS OFF $I_g$ and half
+        of its $I_b$ values lie below \SI{1e-15}{A}, at the simulator noise floor
+        (Section~\ref{sec:kcl}), and their sign is close to random. On the samples with
+        $|I| \ge \SI{1e-15}{A}$ the MLP's median errors are 2.5 / 3.5 / 2.5 / 2.3\,\% against
+        5.7 / 5.7 / 5.4 / 3.3\,\% for XGBoost, and its $I_g$/$I_b$ p95 are 18.5 / 13.2\,\% against
+        27.3 / 14.4\,\%. The MLP is kept, following the rule.
 \end{itemize}
-The four chosen models are \texttt{saved\_models/mlp/\{nmos\_on, nmos\_off, pmos\_on\}.joblib} and
-\texttt{saved\_models/xgboost/pmos\_off.joblib} (\texttt{results/chosen\_models.csv}); before the test
-run, each saved file is checked to reproduce its validation errors.
+The four chosen models are \texttt{saved\_models/mlp/<case>.joblib} (\texttt{results/chosen\_models.csv});
+before the test run, each saved file is checked to reproduce its validation errors.
 
 \begin{table}[!htbp]
 \centering
@@ -310,28 +332,30 @@ Source: \texttt{results/test\_results.csv}.}
 \toprule
 Case & Model & Median error (\%) & mean & p95 error (\%) & mean \\
 \midrule
-NMOS ON  & MLP & 1.09 / 0.31 / 1.08 / 0.48 & 0.74 & 13.8 / 3.4 / 13.2 / 2.8 & 8.3 \\
-NMOS OFF & MLP & 0.80 / 0.17 / 0.84 / 0.50 & 0.58 & 18.4 / 1.3 / 14.6 / 5.2 & 9.9 \\
-PMOS ON  & MLP & 1.00 / 0.30 / 0.99 / 0.50 & 0.70 & 9.2 / 1.6 / 9.3 / 6.1 & 6.5 \\
-PMOS OFF & XGBoost & 5.96 / 19.73 / 6.12 / 13.87 & 11.42 & 34.3 / 228.5 / 32.8 / 189.4 & 121.2 \\
+NMOS ON  & MLP & 0.13 / 0.14 / 0.13 / 0.21 & 0.15 & 0.8 / 1.4 / 0.8 / 1.2 & 1.1 \\
+NMOS OFF & MLP & 0.14 / 0.06 / 0.13 / 0.22 & 0.14 & 1.5 / 0.4 / 1.8 / 1.5 & 1.3 \\
+PMOS ON  & MLP & 0.13 / 0.11 / 0.13 / 0.21 & 0.14 & 0.7 / 0.6 / 0.7 / 4.1 & 1.5 \\
+PMOS OFF & MLP & 3.01 / 15.77 / 2.99 / 11.90 & 8.42 & 23.3 / 450.0 / 25.7 / 621.0 & 280.0 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The test errors are close to the validation errors (mean median 0.74 vs 0.71\,\%, 0.58 vs 0.57\,\%,
-0.70 vs 0.71\,\% and 11.4 vs 10.8\,\%), so the choice made on the validation set did not overfit it.
-Figure~\ref{fig:testplots} plots predicted against SPICE currents on the test set. The large errors
-are at small currents. For PMOS OFF, 54 of the 59 $I_d$/$I_s$ errors above 100\,\% and every
-prediction with the wrong sign (432, mostly $I_g$ and $I_b$) are at SPICE currents below about
-\SI{1.3e-15}{A}, i.e.\ at the noise floor. For the ON cases, 41 of the 43 $I_d$/$I_s$ errors above
-100\,\% are samples with $|V_d - V_s| < \SI{20}{mV}$, where the channel current is small and changes sign.
+The test errors are close to the validation errors (mean median 0.15 vs 0.15\,\%, 0.14 vs 0.13\,\%,
+0.14 vs 0.15\,\% and 8.4 vs 8.1\,\%), so the choices made on the validation set did not overfit it.
+Figure~\ref{fig:testplots} plots predicted against SPICE currents on the test set. In the ON cases
+no $I_d$/$I_s$ error exceeds 100\,\% and no prediction has the wrong sign (the earlier asinh targets
+had 43 such errors, 41 of them at $|V_d - V_s| < \SI{20}{mV}$); NMOS OFF has 3 such errors and 2 wrong
+signs. For PMOS OFF, 40 of the 46 $I_d$/$I_s$ errors above 100\,\% and 476 of the 478 predictions with
+the wrong sign (mostly $I_g$ and $I_b$) are at SPICE currents below about \SI{1.3e-15}{A}, i.e.\ at the
+noise floor; on the samples with $|I| \ge \SI{1e-15}{A}$ its test median errors are
+2.5 / 3.4 / 2.5 / 2.4\,\%.
 
 \begin{figure}[!htbp]
 \centering
 \begin{subfigure}{0.49\linewidth}\includegraphics[width=\linewidth]{test_pred_vs_spice_nmos_on.png}\caption{NMOS ON (MLP)}\end{subfigure}
 \begin{subfigure}{0.49\linewidth}\includegraphics[width=\linewidth]{test_pred_vs_spice_nmos_off.png}\caption{NMOS OFF (MLP)}\end{subfigure}
 \begin{subfigure}{0.49\linewidth}\includegraphics[width=\linewidth]{test_pred_vs_spice_pmos_on.png}\caption{PMOS ON (MLP)}\end{subfigure}
-\begin{subfigure}{0.49\linewidth}\includegraphics[width=\linewidth]{test_pred_vs_spice_pmos_off.png}\caption{PMOS OFF (XGBoost)}\end{subfigure}
+\begin{subfigure}{0.49\linewidth}\includegraphics[width=\linewidth]{test_pred_vs_spice_pmos_off.png}\caption{PMOS OFF (MLP)}\end{subfigure}
 \caption{Predicted vs SPICE terminal currents of the chosen models on the test set, $|I|$ on log
 axes; red crosses: predicted sign opposite to SPICE.}
 \label{fig:testplots}
@@ -366,16 +390,23 @@ so the hierarchical ML accuracy is set by the gate-level predictions.
 \section{Error analysis}
 At the transistor level (MLP, validation set):
 \begin{itemize}
-  \item \textbf{PMOS OFF is the hardest case} (12\,\% mean median error vs 0.6--0.7\,\% for the
-        others), driven by $I_g$ and $I_b$. Most of these currents are below \SI{1e-15}{A}, i.e.\
-        at the simulator noise floor found in the Kirchhoff check, so the targets themselves are
-        not reproducible. The network memorises this noise (training error near 0\,\%) and cannot
-        generalise it; the error is limited by the data, not the model.
-  \item \textbf{$I_d$ and $I_s$ have the largest p95 errors} in every case (10--21\,\% in the
-        non-PMOS-OFF cases). They occur where $V_d \approx V_s$: the channel current passes
-        through zero and changes sign, so the relative error of a small absolute error is large.
-  \item $I_g$ and $I_b$ in NMOS ON, NMOS OFF and PMOS ON are the most accurate currents
-        (median $\le 0.5\,\%$), as they vary smoothly with the inputs.
+  \item \textbf{PMOS OFF is the hardest case} (8.1\,\% mean median error vs 0.13--0.15\,\% for the
+        others), driven by $I_g$ and $I_b$ (14.3 and 12.0\,\% median). Most of these currents are below
+        \SI{1e-15}{A}, i.e.\ at the simulator noise floor found in the Kirchhoff check, so the targets
+        themselves are not reproducible and their sign is close to random (150--170 $I_g$ and 260--300
+        $I_b$ wrong signs in 1{,}500 validation samples for every target tried; 158 and 303 for the chosen model). On the samples above
+        \SI{1e-15}{A} the four median errors are 2.3--3.5\,\%; the error is limited by the data, not the model.
+  \item \textbf{Small $|V_d - V_s|$ in the ON cases.} With the earlier asinh targets most of the
+        largest $I_d$/$I_s$ errors were at $|V_d - V_s| < \SI{20}{mV}$, where the channel current passes
+        through zero and changes sign (median error 7.6\,\% there). Predicting the sign separately,
+        the drain/source swap and the saturation-factor target bring this to 0.4--0.5\,\% for the
+        chosen models (Appendix~\ref{app:tt}).
+  \item \textbf{The lower-voltage terminal in the OFF cases.} The current at the terminal nearer
+        ground (canonical $I_s$) is a near-cancellation of channel and junction leakage; where it is
+        below 1\,\% of $|I_d|$ (15 NMOS OFF and 4 PMOS OFF validation samples) its error stays large
+        (15\,\% and about 4{,}000\,\% median for the chosen models), also when it is computed from Kirchhoff.
+  \item $I_g$ and $I_b$ in NMOS ON, NMOS OFF and PMOS ON are accurate (median $\le 0.25\,\%$), as they
+        vary smoothly with the inputs.
 \end{itemize}
 \pending{gate- and circuit-level error analysis: worst gates, input combinations and corner
 conditions (temperature, $v_{th0}$).}
@@ -385,11 +416,15 @@ conditions (temperature, $v_{th0}$).}
   \item \textbf{Simulator noise floor.} Currents below \SI{1e-15}{A} are not reproducible with
         the unmodified card, which caps the accuracy for PMOS OFF $I_g/I_b$. These currents are
         negligible in a gate sum, so their effect on gate leakage should be small.
-  \item \textbf{Sampling near $V_d \approx V_s$.} Uniform sampling places few points where the
-        channel current changes sign; denser sampling there would reduce the $I_d/I_s$ tail error.
-  \item \textbf{Ensembling.} Averaging five MLPs trained with seeds 42--46 roughly halved the median
-        error in our tests (e.g.\ NMOS ON 0.71\,\% $\to$ 0.40\,\%, PMOS OFF 12.0\,\% $\to$ 8.8\,\%)
-        at five times the training cost.
+  \item \textbf{Target choices within seed variation.} Several per-case target choices are closer
+        than the spread between training seeds (Appendix~\ref{app:tt}); the choice follows the
+        rule, but the runner-up would be about as good.
+  \item \textbf{Test set used twice} (Section~\ref{sec:choice}): once with the earlier targets and
+        once with the present ones. The change was decided on the validation set only.
+  \item \textbf{Ensembling.} With the earlier asinh targets, averaging five MLPs trained with seeds
+        42--46 roughly halved the median error (e.g.\ NMOS ON 0.71\,\% $\to$ 0.40\,\%, PMOS OFF
+        12.0\,\% $\to$ 8.8\,\%) at five times the training cost; it was not repeated with the present
+        targets.
   \item \textbf{Hyperparameter search} was done manually in two rounds and is not reproduced by
         the final script, which uses the fixed settings found.
   \item \textbf{Hierarchical assumptions} (exact 0/VDD gate inputs, no loading between gates) will
@@ -399,7 +434,8 @@ conditions (temperature, $v_{th0}$).}
 \appendix
 \section{MLP hyperparameter search}
 \label{app:mlp}
-Values are the validation mean of the four median errors.
+Values are the validation mean of the four median errors, with the earlier target
+$\operatorname{asinh}(I/\SI{1e-18}{A})$ (before the study of Appendix~\ref{app:tt}).
 
 \begin{table}[!htbp]
 \centering
@@ -437,5 +473,63 @@ E & $128\times3$, batch 128             & 0.72\,\% & 0.62\,\% & 0.73\,\% & 14.37
 \bottomrule
 \end{tabular}
 \end{table}
+
+\section{Target-transform study}
+\label{app:tt}
+Optional script \texttt{experiments/target\_transforms.py} (about 1.5--2.5\,h; outputs in
+\texttt{results/experiments/}, full tables in \texttt{transforms\_tables.md}). Validation set only;
+the test rows are never loaded. Each transform builds on the previous one unless noted:
+\begin{itemize}[itemsep=1pt]
+  \item \textbf{asinh}: the earlier target $\operatorname{asinh}(I/\SI{1e-18}{A})$ (seed 42 only).
+  \item \textbf{T0}: $\log_{10}|I|$ plus a sign output per current with mixed training signs.
+  \item \textbf{T1}: canonical drain/source swap (as in the MLP paragraph of the Models section); $I_d$ sign
+        from physics, $I_s$, $I_g$, $I_b$ keep the sign output.
+  \item \textbf{T2}: per-width target $\log_{10}(|I|/W)$.
+  \item \textbf{T3a}: T2 plus the inputs $V_{ds}/V_T$, $V_{gs}/V_T$, $V_{bs}/V_T$, $\log_{10}(1-e^{-|V_{ds}|/V_T}+10^{-12})$.
+  \item \textbf{T3b}: T2 with the $I_d$/$I_s$ target $\log_{10}\bigl(|I|/(W(1-e^{-|V_{ds}|/V_T})+10^{-30})\bigr)$.
+        No validation sample has $|V_{ds}| < \SI{0.1}{mV}$, and the few training samples below it stay
+        inside the training target range.
+  \item \textbf{T4}: best of T0--T3b with $I_s = -(I_d+I_g+I_b)$ instead of predicting $I_s$.
+  \item \textbf{T5}: best of T0--T4 with training labels clipped to $|I| \ge \SI{1e-17}{A}$.
+\end{itemize}
+The MLP (network settings of the Models section) and XGBoost (its settings and features, applied to
+$I_d, I_g, I_s, I_b$ directly) were trained with seeds 42, 43 and 44. ``Best'' and the final choice
+use the rule of Section~\ref{sec:choice}, applied to the mean over the three seeds. Table~\ref{tab:tt}
+shows the MLP for seed 42, the seed of the saved models. T2 and all XGBoost rows are in the full
+tables: XGBoost did not improve on its own design with any transform.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Target-transform study, MLP, seed 42, validation set: mean of the four median errors /
+mean of the four p95 errors [\%]. For T4 and T5 the base transform is in brackets. Bold: the
+adopted target. Source: \texttt{results/experiments/appendix\_table.tex}.}
+\label{tab:tt}
+\IfFileExists{../results/experiments/appendix_table.tex}{\input{../results/experiments/appendix_table.tex}}%
+  {\pending{run \texttt{experiments/target\_transforms.py} to generate this table.}}
+\end{table}
+
+\textbf{Which choices are within seed variation} (mean over seeds 42--44 $\pm$ standard deviation of
+the mean median error):
+\begin{itemize}[itemsep=1pt]
+  \item NMOS OFF: T4 on T3a (0.136 $\pm$ 0.003\,\%) is clearly ahead of the next, T3a (0.229 $\pm$ 0.007\,\%).
+  \item NMOS ON: T3b (0.157 $\pm$ 0.004\,\%) against T3a (0.162 $\pm$ 0.010\,\%): within seed variation.
+  \item PMOS ON: T3b (0.152 $\pm$ 0.003\,\%) against T3a (0.152 $\pm$ 0.007\,\%): a tie; on seed 42 alone T3a
+        is lower (0.146 against 0.152\,\%).
+  \item PMOS OFF: T5 on T3a (8.19 $\pm$ 0.06\,\%) against T3a (8.46 $\pm$ 0.22\,\%): within seed variation
+        (the seed ranges 8.13--8.25 and 8.21--8.62\,\% overlap).
+\end{itemize}
+The step from the asinh target to the log targets with the drain/source swap (T1 onwards) is far
+larger than the seed variation in every case. Clipping (T5) changes nothing for the ON cases, whose
+labels are all above \SI{1e-17}{A}, and ruins NMOS OFF $I_b$ (p95 about 1{,}400\,\%), whose values are
+genuinely \SIrange{1e-19}{1e-17}{A}.
+
+\textbf{Why the canonical $I_s$ keeps a sign output.} After the swap, $I_s$ is opposite to the
+channel direction in 59.4\,\% of NMOS OFF and 44.0\,\% of PMOS OFF samples (0.01 and 0.05\,\% in the
+ON cases), while $I_d$ always has the channel sign in the OFF cases. In the OFF cases the source-side
+current is a near-cancellation of channel and junction leakage. The 30 worst samples of T0
+(\texttt{experiments/worst\_rows.py}) show the same picture: in the ON cases 73--90\,\% have
+$|V_d - V_s| < \SI{20}{mV}$ (5\,\% of all samples); in NMOS OFF 28 of 30 are the current at the
+lower-voltage terminal; in PMOS OFF all 30 are below \SI{1e-15}{A}.
 
 \end{document}
