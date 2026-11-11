@@ -4,7 +4,7 @@
 *   7 XOR2 in a balanced tree over in0..in7 give out = in0 xor in1 xor ... xor in7
 *   (out = 1 if the number of 1s is odd).
 * NAND2 transistors, widths and junction geometry are those of netlists/gates/nand2.cir: the first
-* input (pin a) drives the NMOS at the output, the second (pin b) the NMOS at ground.
+* input (pin a) drives the NMOS at ground, the second (pin b) the NMOS at the output.
 * Gate instances are named X<output net> and listed in that pin order.
 
 .include ../../models/32nm_HP.pm
@@ -22,8 +22,8 @@
 .subckt nand2 a b out vdd
 MPA out a vdd vdd pmos W={wp_nand} L=32n AD={wp_nand*ldiff} AS={wp_nand*ldiff} PD={2*(wp_nand+ldiff)} PS={2*(wp_nand+ldiff)}
 MPB out b vdd vdd pmos W={wp_nand} L=32n AD={wp_nand*ldiff} AS={wp_nand*ldiff} PD={2*(wp_nand+ldiff)} PS={2*(wp_nand+ldiff)}
-MNA out a x 0 nmos W={wn_nand} L=32n AD={wn_nand*ldiff} AS={wn_nand*ldiff} PD={2*(wn_nand+ldiff)} PS={2*(wn_nand+ldiff)}
-MNB x b 0 0 nmos W={wn_nand} L=32n AD={wn_nand*ldiff} AS={wn_nand*ldiff} PD={2*(wn_nand+ldiff)} PS={2*(wn_nand+ldiff)}
+MNA x a 0 0 nmos W={wn_nand} L=32n AD={wn_nand*ldiff} AS={wn_nand*ldiff} PD={2*(wn_nand+ldiff)} PS={2*(wn_nand+ldiff)}
+MNB out b x 0 nmos W={wn_nand} L=32n AD={wn_nand*ldiff} AS={wn_nand*ldiff} PD={2*(wn_nand+ldiff)} PS={2*(wn_nand+ldiff)}
 .ends nand2
 
 * Level 1: p01 = in0 xor in1, p23, p45, p67
