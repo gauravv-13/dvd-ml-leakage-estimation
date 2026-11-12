@@ -11,7 +11,8 @@ Outputs
                                 transistors, and each transistor's case and predicted Id, Ig, Is, Ib
   results/gate_results.csv      deliverable 6, per gate and inputs: SPICE median, ML median, bias
                                 (median signed error), median and p95 |error|, mean accuracy
-                                (100 % - mean |error|), and the same errors for leak_kcl
+                                (100 % - mean |error|), the same errors for leak_kcl, and the median
+                                SPICE node voltages v_out, v_x, v_y, v_nd, v_nr (empty if the gate has none)
   figures/gate_parity.png       deliverable 7: ML vs SPICE leakage of all 3,600 rows, log axes
 Run:  python 06_gate_ml.py      (after 05_gate_spice.py)
 """
@@ -42,7 +43,8 @@ def summary(g: pd.DataFrame) -> pd.Series:
                       "p95_err_pct": e.abs().quantile(0.95), "mean_accuracy_pct": 100 - e.abs().mean(),
                       "max_err_pct": e.abs().max(), "n_floored": int((g.n_floored > 0).sum()),
                       "kcl_bias_pct": ek.median(), "kcl_median_err_pct": ek.abs().median(),
-                      "kcl_p95_err_pct": ek.abs().quantile(0.95), "kcl_mean_accuracy_pct": 100 - ek.abs().mean()})
+                      "kcl_p95_err_pct": ek.abs().quantile(0.95), "kcl_mean_accuracy_pct": 100 - ek.abs().mean(),
+                      **{f"{n}_median": g[n].median() if n in g else np.nan for n in NODES}})
 
 
 def main() -> None:
@@ -69,7 +71,7 @@ def main() -> None:
     table = df.groupby(["gate", "inputs"], sort=False).apply(summary, include_groups=False).reset_index()
     table.to_csv(RESULTS_DIR / "gate_results.csv", index=False)
     with pd.option_context("display.width", 200, "display.float_format", "{:.4g}".format):
-        print(table.drop(columns=[c for c in table if c.startswith("kcl_")]).to_string(index=False))
+        print(table.drop(columns=[c for c in table if c.startswith("kcl_") or c.startswith("v_")]).to_string(index=False))
     e = df.err_pct.abs()
     print(f"all 3,600 rows: median |error| {e.median():.2f} %, p95 {e.quantile(0.95):.2f} %, "
           f"mean accuracy {100 - e.mean():.2f} %, max {e.max():.1f} % | with KCL: median "
