@@ -31,7 +31,7 @@ Configured in [`config.yaml`](config.yaml).
 | 2 | Data checks: Kirchhoff + 3 trend plots | A.1 / deliverable 3 | `02_data_checks.py` | ✅ done |
 | 3 | ML models: 4 model types × 4 cases, select, test | A.2 / deliverables 4–5 | `03_make_split.py`, `03_train_mlp.py`, `03_train_xgboost.py`, `03_train_poly_ridge.py`, `03_train_rf.py`, `03_select_and_test.py` | ✅ done (MLP for all four cases) |
 | 4 | 200 shared corners + gate SPICE reference (18 cases) | B.3 | `04_gen_corners.py`, `05_gate_spice.py` | ✅ done (3,600 simulations) |
-| 5 | Gate-level ML prediction and comparison | B.4–5 / deliverables 6–7 | `06_gate_ml.py` | ✅ done (KCL for ON channel currents) |
+| 5 | Gate-level ML prediction and comparison | B.4–5 / deliverables 6–7 | `06_gate_ml.py` | ✅ done (median error 1.3 %, mean accuracy 97.6 %) |
 | 6 | Test circuit: SPICE + hierarchical ML | C.6–8 / deliverable 8 | `07_circuit_spice.py`, `08_circuit_ml.py` | 🟨 SPICE reference done (51,200 simulations) |
 | 7 | Figures, tables, report | deliverables 9–10 | `09_figures_tables.py`, `report/` | ⬜ |
 
@@ -62,7 +62,7 @@ src/mlp_model.py       MLP transistor model (MLPFET class, saved by 03_train_mlp
 src/target_transform.py  MLP target recipes: drain/source swap, log10|I| targets, sign outputs
 src/xgb_model.py       XGBoost transistor model (features, XGBFET class, saved by 03_train_xgboost.py)
 src/poly_ridge.py      polynomial ridge transistor model (features, PolyRidgeFET class)
-src/gate_ml.py         gate leakage from the transistor models (topology read from netlists/gates/, KCL)
+src/gate_ml.py         gate leakage from the transistor models (topology read from netlists/gates/); reused by Phase 6
 src/circuit.py         test-circuit gate list (read from the netlist) and logic; writes data/circuit/gates.csv
 models/                PTM BSIM4 model cards
 reference/             spec, slides, TA example netlist
@@ -106,12 +106,14 @@ of the 10,000 sampled rows in turn and runs ngspice once per row.
   seed `gates.seed`) into `data/gates/corners.csv`. Phase 6 reuses the same file.
 - **Widths** (not set by the spec, `gates.widths_lmin`, Wmin = Lmin = 32 nm): INV n = 1, p = 2;
   NAND2 n = 2, p = 2; NOR2 n = 1, p = 4 (× Lmin). AND2 / OR2 use NAND2 / NOR2 + INV sizes.
-  NAND2: B drives the NMOS at the output, A the NMOS at ground. NOR2: A drives the PMOS at VDD.
+  Input order (course slides, stack drawn from the rail to the output): A drives the transistor next to
+  the rail, B the one at the output. NAND2 / AND2 and the parity checker's NAND2: A = NMOS at ground,
+  B = NMOS at the output. NOR2 / OR2: A = PMOS at VDD, B = PMOS at the output.
 - **Junction geometry** as in the transistor netlists, so the gates match the training data.
 - **Leakage** = static power / VDD = current delivered by the VDD supply + currents delivered by the
   inputs held at VDD (`leak` in `data/gates/gate_spice.csv`); `i_vdd`, `i_a`, `i_b` are stored too.
-- **Simulator:** Phase 4 ran with ngspice-42 (Linux). Re-simulating 1,200 dataset rows with it gave
-  currents identical to the ngspice-47 dataset except at the ~1e-16 A noise floor.
+- **Simulator:** ngspice-47, like every other phase (`data/gates/metadata.json`). A rerun with
+  ngspice-44.2 (Windows) gave the same leakages to within 0.02 %.
 
 ## Polynomial ridge model (Phase 3)
 
@@ -140,34 +142,36 @@ NMOS OFF T4 on T3a, PMOS OFF T5 on T3a.
 Every saved model has `model.predict(df)`: `df` holds the dataset input columns
 (`vdd, temp, w, vd, vs, vg, vb, vth0, toxe, ndep, u0, xj`), the result is an (n, 4) array of
 Id, Ig, Is, Ib [A] (current into each terminal). Load with `joblib.load(...)` from the repo root.
-The gate-level phases use **XGBoost for PMOS OFF** (`saved_models/xgboost/pmos_off.joblib`) and the
-MLP for the other three cases (`MODELS` in `06_gate_ml.py`); see "Gate ML prediction" below for why.
-A script that uses MLP and XGBoost models together (e.g. `03_select_and_test.py`, `06_gate_ml.py`)
-must `import xgboost` first and call `torch.set_num_threads(1)`; otherwise their two OpenMP libraries
-crash the process on macOS.
+The gate and circuit phases use these four chosen models, so they need no xgboost. A script that
+uses MLP and XGBoost models together (e.g. `03_select_and_test.py`) must `import xgboost` first and
+call `torch.set_num_threads(1)`; otherwise their two OpenMP libraries crash the process on macOS.
 
 ## Gate ML prediction (Phase 5)
 
-`06_gate_ml.py` (~20 s) predicts the leakage of every row of `data/gates/gate_spice.csv` with the
-transistor models and compares it with SPICE (`src/gate_ml.py` holds the method, reused by Phase 6).
+`06_gate_ml.py` (~5 s) predicts the leakage of every row of `data/gates/gate_spice.csv` with the four
+chosen transistor models and compares it with SPICE. The method is in `src/gate_ml.py`, which Phase 6
+reuses.
 
 - **Topology** is parsed from `netlists/gates/<gate>.cir`; widths from `gates.widths_lmin`.
-- **Terminal voltages** come from the SPICE node voltages (`v_out`, `v_x`, `v_y`, `v_nd`, `v_nr`),
-  the inputs (exactly 0 or VDD), VDD and ground. Every transistor is run through the model of its case
-  (ON/OFF from its gate voltage).
-- **OFF transistors:** all four predicted currents. **ON transistors:** predicted Ig and Ib, but Id
-  and Is from Kirchhoff's current law. ON transistors in a static gate sit at |Vds| ≈ 1–30 µV, which
-  about 1 training sample in 10,000 covers. At a node not tied to a source the device currents sum
-  to 0, so the ON channel current = minus the sum of the currents into all other terminals on the
-  node, then Is = −Id − Ig − Ib. Series ON stacks (NOR2 y, NAND2 x) are solved node by node, always
-  at a node with one unknown ON channel; parallel ON devices share the node current by width.
-- **Leakage** = the Phase 4 definition: currents into the terminals on `vdd` + gate currents of
-  transistors driven by an input at VDD. `leak_direct` (no KCL, models' own ON Id/Is) is stored too.
-- **Why XGBoost for PMOS OFF:** with the MLP, an OFF PMOS whose drain and source both sit at VDD
-  (NAND2/AND2 inputs 01 and 10, |Vds| < 25 µV) occasionally gets |Is| of 0.01–100 A (5–14 of 200
-  corners per case), which destroys the mean error. XGBoost stays bounded there.
-- **Outputs:** `data/gates/gate_ml.csv` (per row: SPICE and ML leakage, node voltages, every
-  transistor's case and currents), `results/gate_results.csv` (deliverable 6: SPICE median, ML median,
-  bias, median and p95 error, mean accuracy = 100 % − mean |error|, and the same for `leak_direct`),
-  `figures/gate_parity.png` (deliverable 7).
-- Reads `gate_spice.csv` with `dtype={"inputs": str}` (otherwise "01" becomes 1).
+- **Terminal voltages** (spec B.4): the SPICE node voltages of the same row (`v_out`, `v_x`, `v_y`,
+  `v_nd`, `v_nr`), the inputs at exactly 0 or VDD, VDD and ground. A transistor uses the model of its
+  case: NMOS ON when its gate is above VDD/2, PMOS ON when its gate is below VDD/2.
+- **Leakage** = the Phase 4 definition (static power / VDD). With the current into every terminal,
+  that is the sum of the predicted currents into the terminals on `vdd` and on inputs held at VDD.
+  Currents at the output and internal nodes are not added (they would count the same current twice).
+- **OFF |Vds| floor** (`gates.vds_floor_off` = 1 mV, not set by the spec): an OFF transistor with both
+  ends on one rail (e.g. the OFF PMOS of NAND2 01/10, the OFF NMOS of NOR2 01/10) sits at 0.1–600 µV,
+  where the OFF training data is almost empty (24 of 10,000 PMOS OFF rows below 1 mV) and the model
+  extrapolates to absurd currents (up to 1e265 A). Such a transistor is evaluated at |Vds| = 1 mV,
+  same direction. The transistor models are unchanged.
+- **KCL variant** (`ml_leak_kcl`, for comparison only): Id/Is of ON transistors from Kirchhoff's
+  current law at the free nodes. Median error 1.40 % vs 1.26 % without it, so it is not used.
+- **Outputs:** `data/gates/gate_ml.csv` (per row: SPICE node voltages, SPICE and ML leakage, error,
+  KCL variant, floored-transistor count, every transistor's case and predicted currents),
+  `results/gate_results.csv` (deliverable 6: SPICE median, ML median, bias = median signed error,
+  median and p95 |error|, mean accuracy = 100 % − mean |error|, max error), `figures/gate_parity.png`
+  (deliverable 7).
+- **Result:** all 3,600 rows median |error| 1.26 %, p95 8.9 %, mean accuracy 97.6 %, max 29 %.
+  Worst cases: INV 1, NAND2 11, AND2 00 and NOR2 10 (median 2.2–4.0 %), where 89–99 % of the leakage
+  is OFF-PMOS current (PMOS OFF is the least accurate transistor model); the cases with no OFF-PMOS
+  current in the sum are at 0.7–0.9 %.
