@@ -1,5 +1,5 @@
 * NAND2: static leakage at one corner and inputs AB; x = node between the series NMOS
-* (B drives the NMOS at the output, A the NMOS at ground)
+* (A drives the NMOS at the output, B the NMOS at ground)
 
 .include ../../models/32nm_HP.pm
 .options gmin=1e-18 abstol=1e-18 reltol=1e-6 vntol=1e-9
@@ -15,8 +15,8 @@
 
 MPA out a vdd vdd pmos W={wp} L=32n AD={wp*ldiff} AS={wp*ldiff} PD={2*(wp+ldiff)} PS={2*(wp+ldiff)}
 MPB out b vdd vdd pmos W={wp} L=32n AD={wp*ldiff} AS={wp*ldiff} PD={2*(wp+ldiff)} PS={2*(wp+ldiff)}
-MNA x a 0 0 nmos W={wn} L=32n AD={wn*ldiff} AS={wn*ldiff} PD={2*(wn+ldiff)} PS={2*(wn+ldiff)}
-MNB out b x 0 nmos W={wn} L=32n AD={wn*ldiff} AS={wn*ldiff} PD={2*(wn+ldiff)} PS={2*(wn+ldiff)}
+MNA out a x 0 nmos W={wn} L=32n AD={wn*ldiff} AS={wn*ldiff} PD={2*(wn+ldiff)} PS={2*(wn+ldiff)}
+MNB x b 0 0 nmos W={wn} L=32n AD={wn*ldiff} AS={wn*ldiff} PD={2*(wn+ldiff)} PS={2*(wn+ldiff)}
 Vdd vdd 0 dc {vdd}
 Va a 0 dc {ina*vdd}
 Vb b 0 dc {inb*vdd}
