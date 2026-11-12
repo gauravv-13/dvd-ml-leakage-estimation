@@ -12,7 +12,7 @@ and call torch.set_num_threads(1): both bring their own OpenMP library, and on m
 one process otherwise crashes it (see 03_select_and_test.py).
 """
 from __future__ import annotations
-from scipy.special import expit
+
 import numpy as np
 import pandas as pd
 import torch
@@ -92,7 +92,7 @@ class MLPFET:
             out = self.network()(X).numpy()
         n_mag = len(self.plan.mags)
         y = out[:, :n_mag] * self.y_std + self.y_mean
-        p_pos = expit(out[:, n_mag:].astype(np.float64))
+        p_pos = 1.0 / (1.0 + np.exp(-out[:, n_mag:].astype(float)))
         return self.plan.currents(d, swapped, self.recipe, y, p_pos)
 
     def __getstate__(self):
