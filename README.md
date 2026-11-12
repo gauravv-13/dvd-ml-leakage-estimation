@@ -169,7 +169,8 @@ reuses.
 - **Outputs:** `data/gates/gate_ml.csv` (per row: SPICE node voltages, SPICE and ML leakage, error,
   KCL variant, floored-transistor count, every transistor's case and predicted currents),
   `results/gate_results.csv` (deliverable 6: SPICE median, ML median, bias = median signed error,
-  median and p95 |error|, mean accuracy = 100 % − mean |error|, max error), `figures/gate_parity.png`
+  median and p95 |error|, mean accuracy = 100 % − mean |error|, max error, median SPICE node
+  voltages), `figures/gate_parity.png`
   (deliverable 7).
 - **Result:** all 3,600 rows median |error| 1.26 %, p95 8.9 %, mean accuracy 97.6 %, max 29 %.
   Worst cases: INV 1, NAND2 11, AND2 00 and NOR2 10 (median 2.2–4.0 %), where 89–99 % of the leakage
