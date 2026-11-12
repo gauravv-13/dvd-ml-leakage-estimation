@@ -7,7 +7,7 @@ models = {
     'NMOS_ON': joblib.load('saved_models/mlp/nmos_on.joblib'),
     'NMOS_OFF': joblib.load('saved_models/mlp/nmos_off.joblib'),
     'PMOS_ON': joblib.load('saved_models/mlp/pmos_on.joblib'),
-    'PMOS_OFF': joblib.load('saved_models/xgboost/pmos_off.joblib')
+    'PMOS_OFF': joblib.load('saved_models/mlp/pmos_off.joblib')
 }
 
 df_corners = pd.read_csv('./data/gates/corners.csv')
@@ -308,6 +308,17 @@ def get_gate_transistors(simul_row):
             pass
 
 
+VDS_FLOOR = 1e-3  # V; the training data barely covers |Vds| below this
+
+def floor_vds(df_params):
+    """OFF transistors with |Vds| < 1 mV are evaluated at 1 mV (training-data coverage).
+    Vd is moved 1 mV away from Vs, towards the inside of [0, VDD]; the model is unchanged."""
+    df_params = df_params.copy()
+    small = (df_params['vd'] - df_params['vs']).abs() < VDS_FLOOR
+    step = np.where(df_params['vs'] > df_params['vdd'] / 2, -VDS_FLOOR, VDS_FLOOR)
+    df_params.loc[small, 'vd'] = df_params.loc[small, 'vs'] + step[small]
+    return df_params
+
 def predict_gate_leakage(transistors):
     static_pwr = 0
     vdd_val = transistors[0]['tx_data']['vdd']
@@ -323,11 +334,11 @@ def predict_gate_leakage(transistors):
                 current_preds = models['NMOS_ON'].predict(df_params)
                 # (vd.id+vs.is+vg.ig+vb.ib)/vdd
             case 'nmos_off':
-                current_preds = models['NMOS_OFF'].predict(df_params)
+                current_preds = models['NMOS_OFF'].predict(floor_vds(df_params))
             case 'pmos_on':
                 current_preds = models['PMOS_ON'].predict(df_params)
             case 'pmos_off':
-                current_preds = models['PMOS_OFF'].predict(df_params)
+                current_preds = models['PMOS_OFF'].predict(floor_vds(df_params))
             case _:
                 pass
         static_pwr += (
@@ -342,18 +353,23 @@ def main():
     df['leak_preds'] = df.apply(lambda x: predict_gate_leakage(get_gate_transistors(x)), axis = 1)
     df['bias'] = df['leak_preds']-df['leak']
     df['error_pct'] = (np.abs(df['bias'])/df['leak'])*100
-    
+
     gate_results = df.groupby(['gate', 'inputs']).agg(
         spice_median = ('leak', 'median'),
         ml_median = ('leak_preds', 'median'),
         bias_median = ('bias', 'median'),
         median_error_pct = ('error_pct', 'median'),
-        p95_error_pct = ('error_pct', lambda x: np.percentile(x, 95))
+        p95_error_pct = ('error_pct', lambda x: np.percentile(x, 95)),
+        v_out_median = ('v_out', lambda x: "Unknown" if np.isnan(m:=np.median(x)) else m),    # gate output (SPICE)
+        v_x_median = ('v_x', lambda x: "Unknown" if np.isnan(m:=np.median(x)) else m),        # NAND2/AND2: between the series NMOS
+        v_y_median = ('v_y', lambda x: "Unknown" if np.isnan(m:=np.median(x)) else m),        # NOR2/OR2: between the series PMOS
+        v_nd_median = ('v_nd', lambda x: "Unknown" if np.isnan(m:=np.median(x)) else m),      # AND2: NAND2 output = inverter input
+        v_nr_median = ('v_nr', lambda x: "Unknown" if np.isnan(m:=np.median(x)) else m)       # OR2: NOR2 output = inverter input
     ).reset_index()
+
     
     print(gate_results)
     gate_results.to_csv('./results/gate_results_table.csv', index = False)
-    
     
     plt.figure(figsize=(7, 6))
     
@@ -374,7 +390,6 @@ def main():
     plt.grid(True, which="both", ls="--", alpha=0.5)
     plt.tight_layout()
     plt.savefig('./results/gate_parity_plot.png', dpi=300)
-    plt.show()
 
 if __name__=="__main__":
     main()
