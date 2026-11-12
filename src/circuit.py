@@ -2,7 +2,7 @@
 
 The gate list comes straight from the gate instances (lines `X<name> <inputs..> <output> vdd <type>`)
 of netlists/circuit/parity8.cir, so it always matches the simulated circuit. Pins are listed in the
-netlist's order: for a NAND2, pin a drives the NMOS at the output and pin b the NMOS at ground,
+netlist's order: for a NAND2, pin a drives the NMOS at ground and pin b the NMOS at the output,
 as in netlists/gates/nand2.cir.
 
 Run `python -m src.circuit` to write data/circuit/gates.csv (one row per gate: name, type, a, b, out).
