@@ -1,5 +1,5 @@
 {
-  "ngspice": "ngspice-44.2",
+  "ngspice": "ngspice-47",
   "model_file": "32nm_HP.pm",
   "n_corners": 200,
   "widths_m": {
@@ -28,6 +28,6 @@
       "wp_inv": 6.4e-08
     }
   },
-  "seconds": 130.7,
+  "seconds": 10.4,
   "max_vout_error_frac_vdd": 0.0007141636359601591
 }

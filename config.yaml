@@ -34,6 +34,10 @@ gates:                          # Phase 4 (spec Part B, section 5)
     inv:   {n: 1, p: 2}
     nand2: {n: 2, p: 2}
     nor2:  {n: 1, p: 4}
+  # Phase 5/6 (gate ML): an OFF transistor with |Vds| below this is evaluated at this |Vds| (V).
+  # Not set by the spec. In a gate, an OFF device with both ends on one rail sits at 0.1-600 uV,
+  # where the OFF training data is almost empty (24 of 10,000 PMOS OFF rows below 1 mV).
+  vds_floor_off: 1.0e-3
 
 split:
   seed: 42
