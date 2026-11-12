@@ -1,5 +1,5 @@
 {
-  "ngspice": "ngspice-44.2",
+  "ngspice": "ngspice-47",
   "model_file": "32nm_HP.pm",
   "n_corners": 200,
   "n_vectors": 256,
@@ -10,7 +10,7 @@
     "wn_nand": 6.4e-08,
     "wp_nand": 6.4e-08
   },
-  "seconds": 3045.0,
+  "seconds": 332.5,
   "max_vout_error_frac_vdd": 0.000714636585008621,
   "n_leak_nonpositive": 0
 }
