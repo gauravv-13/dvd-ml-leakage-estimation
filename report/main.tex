@@ -379,31 +379,56 @@ delivered by the inputs held at VDD (inputs at 0\,V deliver no power). Every out
 $7.2\times10^{-4}\,V_{DD}$ of its logic value.
 
 \subsection{ML prediction}
-Following step~4 of the spec, \texttt{06\_gate\_ml.py} takes the terminal voltages of every transistor
+Following step~4 of the spec, \texttt{06\_gate\_preds.py} takes the terminal voltages of every transistor
 from the SPICE node voltages of the same gate, inputs and corner (output, $x$, $y$ and the NAND2/NOR2
 output of AND2/OR2), the inputs, VDD and ground, and runs each transistor through the chosen model of its
-case (NMOS ON when its gate is above $V_{DD}/2$, PMOS ON when below). The gate topology is read
-from the gate netlists. The leakage uses the SPICE definition: with every predicted current flowing
-into its terminal, it is the sum of the currents into the terminals on VDD and on the inputs held at
-VDD. Currents at the output and internal nodes are not added, as each would count a current that is
+case (ON or OFF from the inputs). The leakage uses the SPICE definition: with every current flowing into
+its terminal, it is the sum of the currents into the terminals on VDD and on the inputs held at VDD.
+Currents at the output and internal nodes are not added, as each would count a current that is
 already counted where it enters the gate.
 
-One choice is not set by the spec. An OFF transistor with both ends on the same rail (the OFF PMOS of
-NAND2 01/10, the OFF NMOS of NOR2 01/10 and the corresponding AND2/OR2 cases) sits at
-$|V_{ds}| \approx 0.1$--\SI{600}{\micro V}. The OFF training data barely covers this (24 of 10{,}000
-PMOS OFF samples below 1\,mV), and there the networks extrapolate to unphysical currents (up to
-\SI{e265}{A}). Such a transistor is therefore evaluated at $|V_{ds}| = 1$\,mV in the same direction
-(1{,}600 of the 3{,}600 rows contain one). Its channel current at 1\,mV is still a small part of the gate
-leakage; with a floor of 0.1\,mV the NAND2/AND2 01 and 10 medians are the same, but single corners still reach 60--106\,\% error.
-The transistor models themselves are unchanged. Taking the ON transistors' $I_d$/$I_s$ from Kirchhoff's
-current law at the internal nodes instead of from the ON models was also tried; it gave a median error
-of 1.40\,\% instead of 1.26\,\% and is not used.
+\textbf{ON transistors via Kirchhoff's law.} In a static gate an ON transistor carries only what the
+OFF transistors leak, with a few \si{\micro V} across it. Its predicted channel current would simply turn
+that tiny drop, computed by SPICE, into a current. We therefore keep the ON transistors' predicted
+$I_g$ and $I_b$ but take their $I_d$ and $I_s$ from Kirchhoff's current law at the output and internal
+nodes (nodes with the fewest unknown channels first, so series ON stacks are solved node by node;
+parallel ON transistors share a node current by width). The leakage is then set by the OFF transistor
+models and the gate and body currents. Table~\ref{tab:gatemethods} compares this with two
+alternatives, also with the output-type nodes (output, NAND2/NOR2 output) set to exactly 0 or VDD
+instead of the SPICE values. Using the ON models' own $I_d$/$I_s$ is slightly more accurate with the
+SPICE voltages but collapses with ideal ones, i.e.\ its accuracy comes from the \si{\micro V} drops
+SPICE computed rather than from the models; the Kirchhoff version is the same in both cases.
+
+\begin{table}[!htbp]
+\centering
+\caption{Gate leakage method, all 3{,}600 rows: median error and mean accuracy.}
+\label{tab:gatemethods}
+\small
+\begin{tabular}{lccc}
+\toprule
+ & Kirchhoff for ON & ON models' & \\
+ & (used) & $I_d$/$I_s$ & $\sum V I / V_{DD}$ \\
+\midrule
+Median error, SPICE node voltages & 1.40\,\% & 1.26\,\% & 1.69\,\% \\
+Mean accuracy, SPICE node voltages & 97.4\,\% & 97.6\,\% & 96.4\,\% \\
+Mean accuracy, ideal 0/VDD outputs & 97.4\,\% & 56.4\,\% & 97.0\,\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{OFF transistors at $|V_{ds}| \approx 0$.} One choice is not set by the spec. An OFF transistor with
+both ends on the same rail (the OFF PMOS of NAND2 01/10, the OFF NMOS of NOR2 01/10 and the
+corresponding AND2/OR2 cases) sits at $|V_{ds}| \approx 0.1$--\SI{600}{\micro V}. The OFF training data
+barely covers this (24 of 10{,}000 PMOS OFF samples below 1\,mV), and there the networks extrapolate to
+unphysical currents (up to \SI{e265}{A}). Such a transistor is therefore evaluated at $|V_{ds}| = 1$\,mV
+(1{,}600 of the 3{,}600 rows contain one). With a floor of 0.1\,mV every case median is the same, but single
+NAND2/AND2 corners still reach up to 105\,\% error. The transistor models themselves are unchanged.
 
 \subsection{Results}
 Table~\ref{tab:gates} lists the 18 cases and Fig.~\ref{fig:gateparity} the parity plot. Over all 3{,}600
-simulations the median error is 1.26\,\% (p95 8.9\,\%, maximum 29\,\%), the median bias $+0.2$\,\% and
-the mean accuracy ($100\,\% - $ mean $|$error$|$) 97.6\,\%, against the target of 99\,\%. Per gate the
-median error is 0.9--1.9\,\% and the mean accuracy 96.6--98.5\,\%.
+simulations the median error is 1.40\,\% (p95 9.4\,\%, maximum 29\,\%), the median bias $-0.6$\,\% and
+the mean accuracy ($100\,\% - $ mean $|$error$|$) 97.4\,\%, against the target of 99\,\%. Per gate the
+median error is 0.5--2.1\,\% and the mean accuracy 96.6--98.3\,\%.
 
 \begin{table}[!htbp]
 \centering
@@ -417,44 +442,46 @@ error: $|$ML$-$SPICE$|$/SPICE; mean accuracy: $100\,\% - $ mean error.}
 \cmidrule(lr){3-4}\cmidrule(lr){6-7}
 Gate & $AB$ & SPICE & ML & (\%) & median & p95 & (\%) \\
 \midrule
-INV & 0 & 1.603 & 1.610 & +0.67 & 0.89 & 4.0 & 98.6 \\
+INV & 0 & 1.603 & 1.597 & $-$0.34 & 1.07 & 4.2 & 98.6 \\
 INV & 1 & 1.424 & 1.348 & $-$3.04 & 4.04 & 14.9 & 94.5 \\
 \midrule
-NAND2 & 00 & 0.132 & 0.133 & +0.70 & 0.88 & 4.0 & 98.6 \\
-NAND2 & 01 & 1.231 & 1.236 & +0.70 & 0.92 & 4.0 & 98.6 \\
-NAND2 & 10 & 3.988 & 3.982 & +0.66 & 0.88 & 3.9 & 98.6 \\
+NAND2 & 00 & 0.132 & 0.131 & $-$0.03 & 0.24 & 0.8 & 99.7 \\
+NAND2 & 01 & 1.231 & 1.230 & +0.17 & 0.31 & 1.0 & 99.6 \\
+NAND2 & 10 & 3.988 & 3.968 & +0.17 & 0.55 & 3.3 & 99.1 \\
 NAND2 & 11 & 2.935 & 2.770 & $-$2.85 & 3.92 & 14.0 & 94.8 \\
 \midrule
-NOR2 & 00 & 3.206 & 3.207 & +0.59 & 0.74 & 4.0 & 98.8 \\
-NOR2 & 01 & 3.108 & 3.174 & +0.60 & 0.74 & 3.9 & 98.8 \\
+NOR2 & 00 & 3.206 & 3.200 & $-$0.33 & 1.06 & 4.2 & 98.6 \\
+NOR2 & 01 & 3.108 & 2.934 & $-$2.83 & 3.37 & 12.1 & 95.3 \\
 NOR2 & 10 & 0.670 & 0.658 & +0.81 & 2.24 & 6.7 & 97.3 \\
 NOR2 & 11 & 0.082 & 0.083 & +0.24 & 1.27 & 6.1 & 98.1 \\
 \midrule
-AND2 & 00 & 1.728 & 1.618 & $-$2.58 & 3.39 & 13.4 & 95.2 \\
-AND2 & 01 & 3.312 & 3.257 & $-$1.24 & 1.67 & 9.1 & 97.0 \\
-AND2 & 10 & 6.451 & 6.407 & $-$0.36 & 1.10 & 7.1 & 98.1 \\
-AND2 & 11 & 5.262 & 5.117 & $-$1.53 & 2.15 & 10.3 & 96.6 \\
+AND2 & 00 & 1.728 & 1.615 & $-$2.61 & 3.47 & 13.2 & 95.2 \\
+AND2 & 01 & 3.312 & 3.243 & $-$1.40 & 1.92 & 9.2 & 97.0 \\
+AND2 & 10 & 6.451 & 6.402 & $-$0.63 & 1.20 & 6.3 & 98.0 \\
+AND2 & 11 & 5.262 & 5.104 & $-$2.17 & 2.62 & 10.5 & 96.4 \\
 \midrule
-OR2 & 00 & 5.489 & 5.445 & $-$0.47 & 1.24 & 7.4 & 97.9 \\
-OR2 & 01 & 5.587 & 5.635 & +0.62 & 0.78 & 3.9 & 98.7 \\
-OR2 & 10 & 2.822 & 2.749 & +0.71 & 0.98 & 3.4 & 98.6 \\
-OR2 & 11 & 1.659 & 1.663 & +0.66 & 0.90 & 3.6 & 98.7 \\
+OR2 & 00 & 5.489 & 5.435 & $-$1.66 & 1.83 & 7.4 & 97.4 \\
+OR2 & 01 & 5.587 & 5.513 & $-$1.99 & 2.36 & 9.5 & 96.7 \\
+OR2 & 10 & 2.822 & 2.741 & $-$0.31 & 1.14 & 3.9 & 98.5 \\
+OR2 & 11 & 1.659 & 1.648 & $-$0.29 & 1.00 & 4.0 & 98.7 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.6\linewidth]{gate_parity.png}
+\includegraphics[width=0.6\linewidth]{../results/gate_parity_plot.png}
 \caption{ML vs SPICE gate leakage, all 18 cases $\times$ 200 corners, log axes.}
 \label{fig:gateparity}
 \end{figure}
 
-The accuracy of a case follows how much of its leakage comes from OFF PMOS transistors, the least
-accurate transistor model (Section~\ref{sec:choice}). The four least accurate cases, INV 1, NAND2 11,
-AND2 00 and NOR2 10 (median error 2.2--4.0\,\%, the first three biased low by 2.6--3.0\,\%), are those
-where 89--99\,\% of the predicted leakage is OFF-PMOS current; the cases with none, whose leakage
-comes from OFF NMOS and the gate currents, are at 0.7--0.9\,\%.
+The accuracy of a case follows how much of its leakage is set by the PMOS OFF model, the least
+accurate transistor model (Section~\ref{sec:choice}). In the five least accurate cases, INV 1, NAND2 11,
+AND2 00, NOR2 01 and NOR2 10 (median error 2.2--4.0\,\%, the first four biased low by 2.6--3.0\,\%),
+89--99\,\% of the leakage is set by OFF PMOS transistors (measured as the change of the predicted leakage
+when the PMOS OFF currents are scaled). In the cases with no PMOS OFF contribution, where the NMOS OFF
+model carries the leakage, the median error is 0.24--1.07\,\%; NAND2 00, 01 and 10 are the most
+accurate cases (0.24--0.55\,\%).
 
 \section{Test-circuit results}
 The 8-bit parity checker (\texttt{netlists/circuit/parity8.cir}) is built only from a gate that
@@ -500,16 +527,16 @@ At the transistor level (MLP, validation set):
 \end{itemize}
 At the gate level (Section~\ref{sec:gates}):
 \begin{itemize}
-  \item \textbf{Worst gates and inputs} are those whose leakage is mostly OFF-PMOS current (INV 1,
-        NAND2 11, AND2 00, NOR2 10: 89--99\,\% of the sum, median error 2.2--4.0\,\%), inheriting the
-        PMOS OFF model error; cases without OFF-PMOS current are at 0.7--0.9\,\%.
-  \item \textbf{Temperature} matters most: the median error is 2.3\,\% for $T \le \SI{0}{\celsius}$
-        and 0.8\,\% above \SI{40}{\celsius} (p95 12.6 vs 5.3\,\%), and 92\,\% of the worst 1\,\% of
-        rows (36 of 3{,}600) are below \SI{0}{\celsius} (24\,\% of all rows), where the subthreshold
-        currents are smallest.
-  \item \textbf{Process and VDD} matter less: the median error rises from 1.0 to 2.0\,\% from the
-        highest to the lowest quarter of PMOS $|v_{th0}|$, and from about 1.0 to 1.7\,\% at the highest VDD
-        quarter; NMOS $v_{th0}$ has little effect (1.0--1.5\,\%).
+  \item \textbf{Worst gates and inputs} are those whose leakage is set by OFF PMOS transistors (INV 1,
+        NAND2 11, AND2 00, NOR2 01, NOR2 10: 89--99\,\%, median error 2.2--4.0\,\%), inheriting the
+        PMOS OFF model error; where the NMOS OFF model carries the leakage the error is 0.24--1.07\,\%.
+  \item \textbf{Temperature} matters most for the tails: the p95 error is 14.5\,\% for
+        $T \le \SI{0}{\celsius}$ and 5.9\,\% above \SI{80}{\celsius} (median 1.7 vs 1.1\,\%), and 97\,\% of
+        the worst 1\,\% of rows (36 of 3{,}600) are below \SI{0}{\celsius} (23\,\% of all rows), where the
+        subthreshold currents are smallest.
+  \item \textbf{Process and VDD:} the median error rises from 1.2 to 1.8\,\% from the highest to the
+        lowest quarter of PMOS $|v_{th0}|$, and from 1.0 to 2.0\,\% from the lowest to the highest VDD
+        quarter; NMOS $v_{th0}$ has little effect (1.3--1.5\,\%).
 \end{itemize}
 \pending{circuit-level error analysis after Phase 6.}
 
