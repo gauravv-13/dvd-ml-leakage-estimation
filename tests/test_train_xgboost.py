@@ -109,8 +109,9 @@ def test_only_pmos_off_trains_on_absolute_error():
                           "pmos_on": "reg:squarederror", "pmos_off": "reg:absoluteerror"}
 
 
-def test_run_case_row_has_the_metric_columns_of_the_mlp_results(monkeypatch):
+def test_run_case_row_has_the_metric_columns_of_the_mlp_results(monkeypatch, tmp_path):
     monkeypatch.setitem(xgb_script.SETTINGS, "nmos_off", FAST)
+    monkeypatch.setattr(xgb_script, "SAVED_MODELS_DIR", tmp_path)  # keep the fast model out of saved_models/
     with open(ROOT / "results" / "mlp_validation.csv", newline="") as f:
         mlp_columns = next(csv.reader(f))
     expected = {c for c in mlp_columns if c.endswith(METRIC_SUFFIXES)} | {"mean_median_err_pct", "model", "case"}
