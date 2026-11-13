@@ -547,15 +547,17 @@ differ: 00, 01 and 10 are accurate (median 0.24--0.55\,\%, bias near 0), while 1
 median error of 3.9\,\% and a bias of $-2.85\,\%$ (Table~\ref{tab:gates}). Every vector has 7 to 11 of
 the 28 gates at 11, and they carry a median 39\,\% of the circuit leakage, so the circuit error is set
 mostly by combination 11; this is also where the circuit bias ($-0.91\,\%$, against $-0.03\,\%$ for the
-NAND2 cases) comes from. How the gate errors combine is set by the corner (Section~\ref{sec:errors}).
-Gates at the same input combination and corner have exactly the same error, so it does not average
-out over more gates. Errors of different combinations, however, partly cancel: adding up each gate's
-$|$error$|$ weighted by its leakage, without cancellation, gives a median of 1.94\,\% instead of
-1.36\,\%. Almost all of that cancellation is between combination 11 and the others (1.88\,\% if only
-00, 01 and 10 may cancel among themselves), whose errors at a corner have opposite signs in about half
-of the rows. Because the gates at 11 carry only part of the leakage, the maximum error also stays below
-that of the worst NAND2 case (22.3 against 28.5\,\%, both at corner 152, where combination 11 is at
-$-28.5\,\%$ and the others between $-1.0$ and $+0.3\,\%$).
+NAND2 cases) comes from. At each vector and corner the circuit error is the leakage-weighted average of
+the gate errors (each input combination weighted by its share of the gate SPICE sum), plus the
+composition error of at most 0.51\,\%. Gates at the same input combination and corner have exactly the
+same error, so it does not average out over more gates. Keeping only the errors of the gates at 11 (the
+other gates at their SPICE leakage) gives a median circuit error of 1.36\,\% and a bias of
+$-1.09\,\%$; keeping only those of 00, 01 and 10 gives 0.24\,\% and $+0.01\,\%$. The circuit error is
+therefore about that of the gates at 11 alone: the small 00/01/10 errors partly offset it (adding up
+every gate's $|$error$|$ without any offsetting would give 1.94\,\%), but do not reduce it below the
+11-only value. As a weighted average, the circuit error cannot exceed the worst gate error at its
+corner: at corner 152 the gates at 11 carry 78\,\% of the leakage of vector~0, and their $-28.5\,\%$
+becomes the circuit maximum of $-22.3\,\%$.
 
 \section{Error analysis}\label{sec:errors}
 At the transistor level (MLP, validation set):
@@ -599,8 +601,8 @@ At the circuit level (Table~\ref{tab:circuit}; breakdown in \texttt{results/circ
         same input combination have the same error. Across the 200 corners the errors of the four NAND2
         input combinations are nearly uncorrelated with each other ($|r| \le 0.25$); the OFF NMOS stack
         (00, 01, 10) errs little and without bias, the two OFF PMOS (11) more and mostly low (negative
-        at 76\,\% of the corners), and the two partly cancel in the sum (median 1.94\,\% without
-        cancellation, 1.36\,\% with it).
+        at 77\,\% of the corners), so the circuit error is about that of the gates at 11 alone
+        (median 1.36\,\% with or without the 00/01/10 errors).
   \item \textbf{OFF-PMOS share.} NAND2 gates at 11 carry 5--97\,\% (median 39\,\%) of the circuit
         leakage (gate SPICE sum), depending on the vector and corner. The median error rises from
         0.8\,\% in the lowest quarter of that share to 3.2\,\% in the highest (p95 3.2 to 14.6\,\%, bias
@@ -608,13 +610,18 @@ At the circuit level (Table~\ref{tab:circuit}; breakdown in \texttt{results/circ
         least accurate part.
   \item \textbf{Corner conditions.} Ranked with one point per corner (Spearman correlation of the
         per-corner median error with each condition, 200 corners), PMOS $|v_{th0}|$ and temperature
-        are equally strong drivers ($r = -0.36$ each), then NMOS $v_{th0}$ ($+0.23$) and VDD ($+0.14$).
+        are equally strong drivers ($r = -0.36$ each), then NMOS $v_{th0}$ ($+0.23$); VDD is weak
+        ($+0.14$). The two $v_{th0}$ act mainly through the OFF-PMOS share (Spearman with the
+        per-corner median share $-0.70$ for PMOS $|v_{th0}|$ and $+0.72$ for NMOS $v_{th0}$, which
+        lowers the NMOS stack leakage), temperature through the error of the gates at 11 itself (colder
+        corners more negative, $r = +0.49$ with its signed error, against $-0.11$ with the share); this
+        is why NMOS $v_{th0}$ matters here although it has little effect on the gate error.
         By quarter (50 corners each), the median error is 3.0\,\% in the lowest quarter of PMOS
         $|v_{th0}|$ against 0.9--1.0\,\% in the upper two, 2.2\,\% in the highest quarter of NMOS
         $v_{th0}$ against 1.0\,\% in the lowest, and 2.0\,\% in the highest VDD quarter against
         1.1--1.3\,\%; it is 2.6\,\% for $T \le \SI{0}{\celsius}$ against 1.0\,\% above \SI{40}{\celsius}
         (p95 14.7 vs 4.6\,\%). The conditions overlap in the tail: the worst 1\,\% of rows (512) come from only two
-        corners, both at the lowest PMOS $|v_{th0}|$ of the 200 (0.445\,V) and at $-28$ and
+        corners, both among the three lowest PMOS $|v_{th0}|$ of the 200 (0.445\,V) and at $-28$ and
         \SI{-38}{\celsius}.
 \end{itemize}
 
@@ -639,8 +646,9 @@ At the circuit level (Table~\ref{tab:circuit}; breakdown in \texttt{results/circ
         Table~\ref{tab:circuit}). This circuit uses one gate type with a fan-out of at most two, so it
         does not test higher fan-out or gates driving unlike loads, where the loading error may be larger.
   \item \textbf{Circuit accuracy is bounded by the transistor models.} Gates at the same input
-        combination share the corner's error, so a larger circuit does not average it out; only the
-        partial cancellation between the OFF-NMOS and OFF-PMOS error sources reduces it. Improving the
+        combination share the corner's error, so a larger circuit does not average it out, and the
+        OFF-NMOS errors offset the OFF-PMOS error only partly: the circuit error is about that of the
+        NAND2 gates at 11 alone. Improving the
         circuit estimate means improving the PMOS OFF model, mainly at low PMOS $|v_{th0}|$ and low
         temperature.
   \item \textbf{Not SPICE-free.} As spec step 4 prescribes, the gate ML uses gate-level SPICE node

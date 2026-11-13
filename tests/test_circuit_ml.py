@@ -49,7 +49,7 @@ def test_ml_sum_of_all_zero_vector_is_7_nand2_at_00_plus_14_at_01_plus_7_at_11(r
 
     expected = (7 * ml["00"] + 14 * ml["01"] + 7 * ml["11"]).reindex(got.index)
 
-    pd.testing.assert_series_equal(got, expected, check_names=False, rtol=1e-9)
+    pd.testing.assert_series_equal(got, expected, check_names=False, rtol=1e-9, atol=0)
 
 
 def test_results_p95_is_the_95th_percentile_of_row_errors(run):
