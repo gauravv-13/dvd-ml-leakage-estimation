@@ -475,9 +475,57 @@ ranges from \SI{48}{nA} to \SI{97}{nA}. As a check of the composition itself, su
 SPICE leakages of Part~B over the 28 gates reproduces the circuit SPICE leakage with a median error
 of 0.04\,\% (p95 0.21\,\%, max 0.51\,\%): ignoring the loading between gates costs almost nothing here,
 so the hierarchical ML accuracy is set by the gate-level predictions.
-\pending{Phase 6: test-circuit metrics table, parity plot, and comparison with gate-level accuracy.}
+Hierarchical ML prediction (\texttt{08\_circuit\_ml.py}): for each input vector the logic value of
+every net follows from the gate list, which gives the input combination of each of the 28 NAND2 in
+the pin order of the gate netlist. Every circuit corner is a Part~B corner, so the ML leakage of a
+gate is the Phase~5 prediction for that gate, input combination and corner, and the circuit leakage
+is the sum over the 28 gates (spec step 7). Table~\ref{tab:circuit} and Fig.~\ref{fig:circuitparity}
+compare it with SPICE.
 
-\section{Error analysis}
+\begin{table}[!htbp]
+\centering
+\caption{Test-circuit leakage vs circuit SPICE, 256 input vectors $\times$ 200 corners, with the same
+metrics as Table~\ref{tab:gates}. The gate SPICE sum is the same composition with the Part~B SPICE
+leakages instead of the ML ones; the Part~B rows are the gate-level reference, for the NAND2 cases
+the circuit is built from and for all 18 gate cases.}
+\label{tab:circuit}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Estimate & Rows & SPICE med. (nA) & Est.\ med. (nA) & Bias (\%) & Med.\ err.\ (\%) & p95 (\%) & Mean acc.\ (\%) & Max (\%) \\
+\midrule
+ML sum of gate predictions & 51{,}200 & 79.92 & 78.48 & $-$0.70 & 1.33 & 8.7 & 97.7 & 21.7 \\
+Gate SPICE sum (no ML)     & 51{,}200 & 79.92 & 79.91 & $-$0.04 & 0.04 & 0.21 & 99.9 & 0.51 \\
+\midrule
+Part~B, NAND2 cases        & 800      & 1.429 & 1.415 & +0.43 & 1.19 & 9.1 & 97.6 & 28.5 \\
+Part~B, all gates          & 3{,}600  & 2.128 & 2.118 & +0.19 & 1.26 & 8.9 & 97.6 & 29.4 \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.6\linewidth]{circuit_parity.png}
+\caption{ML vs SPICE leakage of the 8-bit parity checker, all 256 input vectors $\times$ 200 corners, log axes.}
+\label{fig:circuitparity}
+\end{figure}
+
+The circuit is about as accurate as its own gates: median error 1.33\,\% against 1.19\,\% for the
+Part~B NAND2 cases (1.26\,\% for all 18 gate cases), p95 8.7 against 9.1\,\%, and mean accuracy 97.7
+against 97.6\,\%, still short of the 99\,\% target. The spec expects the circuit to be somewhat less
+accurate than the gates because of the hierarchical assumptions; for this circuit they cost only
+0.04\,\% (gate SPICE sum), so the circuit error is the gate-level ML error carried over. How that error
+combines is set by the corner (Section~\ref{sec:errors}). Gates at the same input combination and
+corner have exactly the same error, so it does not average out over more gates. The NAND2 combination
+11 (bias $-2.9\,\%$, Table~\ref{tab:gates}) and the combinations 00, 01 and 10 (about $+0.7\,\%$),
+however, err independently and mostly with opposite signs, so they partly cancel: adding up each
+gate's $|$error$|$ weighted by its leakage, without cancellation, gives a median of 1.95\,\% instead of
+1.33\,\%. The same mixing keeps the maximum error below that of the worst NAND2 case (21.7 against
+28.5\,\%, both at corner 152, where combination 11 is at $-28.5\,\%$ and the others at about $+2\,\%$).
+The bias, $-0.7\,\%$ against $+0.4\,\%$ for the NAND2 cases, comes from combination 11: every vector
+has 7 to 11 of the 28 gates at 11, and they carry a median 39\,\% of the circuit leakage.
+
+\section{Error analysis}\label{sec:errors}
 At the transistor level (MLP, validation set):
 \begin{itemize}
   \item \textbf{PMOS OFF is the hardest case} (8.1\,\% mean median error vs 0.13--0.15\,\% for the
@@ -511,7 +559,32 @@ At the gate level (Section~\ref{sec:gates}):
         highest to the lowest quarter of PMOS $|v_{th0}|$, and from about 1.0 to 1.7\,\% at the highest VDD
         quarter; NMOS $v_{th0}$ has little effect (1.0--1.5\,\%).
 \end{itemize}
-\pending{circuit-level error analysis after Phase 6.}
+At the circuit level (Table~\ref{tab:circuit}; breakdown in \texttt{results/circuit\_error\_breakdown.csv}):
+\begin{itemize}
+  \item \textbf{The corner, not the input vector, sets the error.} The corner explains 99.6\,\% of the
+        variance of the circuit error, and the median error per input vector only ranges from 1.25 to
+        1.64\,\%. All 28 gates share the corner's VDD, temperature and process draw, so gates at the
+        same input combination have the same error. Across the 200 corners the errors of the NAND2
+        input combinations 00, 01 and 10 are correlated with each other at 0.99, while 11 is nearly
+        uncorrelated with them ($|r| \le 0.06$): the circuit inherits two independent error sources,
+        the OFF NMOS stack (00, 01, 10) and the two OFF PMOS (11), which partly cancel in the sum
+        (median 1.95\,\% without cancellation, 1.33\,\% with it).
+  \item \textbf{OFF-PMOS share.} NAND2 gates at 11 carry 5--97\,\% (median 39\,\%) of the circuit
+        leakage (gate SPICE sum), depending on the vector and corner. The median error rises from
+        0.6\,\% in the lowest quarter of that share to 3.5\,\% in the highest (p95 2.0 to 14.1\,\%, bias
+        $-0.1$ to $-2.6\,\%$), the circuit form of the gate-level finding that OFF-PMOS current is the
+        least accurate part.
+  \item \textbf{Corner conditions.} Ranked with one point per corner (Spearman correlation of the
+        per-corner median error with each condition, 200 corners), PMOS $|v_{th0}|$ is the strongest
+        driver ($r = -0.49$), then temperature ($-0.31$), NMOS $v_{th0}$ ($+0.27$) and VDD ($+0.14$).
+        By quarter (50 corners each), the median error is 2.5\,\% in the lowest quarter of PMOS
+        $|v_{th0}|$ against 0.7\,\% in the highest, 2.0\,\% in the highest quarter of NMOS $v_{th0}$
+        against 0.9\,\% in the lowest, and 2.3\,\% in the highest VDD quarter against 1.1--1.3\,\%; it is
+        2.2\,\% for $T \le \SI{0}{\celsius}$ against 0.9\,\% above \SI{40}{\celsius} (p95 14.2 vs
+        3.9\,\%). The conditions overlap in the tail: the worst 1\,\% of rows (512) come from only two
+        corners, both at the lowest PMOS $|v_{th0}|$ of the 200 (0.445\,V) and at $-28$ and
+        \SI{-38}{\celsius}.
+\end{itemize}
 
 \section{Limitations and improvements}
 \begin{itemize}
@@ -529,8 +602,19 @@ At the gate level (Section~\ref{sec:gates}):
         targets.
   \item \textbf{Hyperparameter search} was done manually in two rounds and is not reproduced by
         the final script, which uses the fixed settings found.
-  \item \textbf{Hierarchical assumptions} (exact 0/VDD gate inputs, no loading between gates) will
-        add error at the circuit level. \pending{quantify after Phase 6.}
+  \item \textbf{Hierarchical assumptions} (exact 0/VDD gate inputs, no loading between gates) cost
+        0.04\,\% median error for the parity checker (p95 0.21\,\%, max 0.51\,\%, gate SPICE sum in
+        Table~\ref{tab:circuit}). This circuit uses one gate type with a fan-out of at most two, so it
+        does not test higher fan-out or gates driving unlike loads, where the loading error may be larger.
+  \item \textbf{Circuit accuracy is bounded by the transistor models.} Gates at the same input
+        combination share the corner's error, so a larger circuit does not average it out; only the
+        partial cancellation between the OFF-NMOS and OFF-PMOS error sources reduces it. Improving the
+        circuit estimate means improving the PMOS OFF model, mainly at low PMOS $|v_{th0}|$ and low
+        temperature.
+  \item \textbf{Not SPICE-free.} As spec step 4 prescribes, the gate ML uses gate-level SPICE node
+        voltages at the same corner, so the hierarchical estimate exists only at the 200 Part~B corners.
+        Solving the internal node voltages from the transistor models (Kirchhoff's current law) would
+        remove that dependence.
 \end{itemize}
 
 \appendix
