@@ -15,7 +15,6 @@
 \captionsetup{font=small}
 
 % Marker for content that depends on phases not finished yet
-\newcommand{\pending}[1]{\textcolor{red}{\textbf{[Pending:} #1\textbf{]}}}
 
 \title{ML-Driven PVT-Variation-Aware Leakage Estimation\\[2pt]
        \large Digital VLSI Design --- Course Project Report}
@@ -28,6 +27,16 @@
 
 \begin{document}
 \maketitle
+
+\section*{Summary}
+Four MLP transistor models (NMOS/PMOS, ON/OFF), trained on 4 $\times$ 10{,}000 ngspice samples of the
+\texttt{32nm\_HP.pm} card, predict the four terminal currents with a test-set median error of 0.14--0.15\,\%
+for NMOS ON, NMOS OFF and PMOS ON and 8.4\,\% for PMOS OFF, whose small currents sit at the simulator
+noise floor. Built from these models, the leakage of the five gates (18 input cases $\times$ 200 PVT
+corners) has a median error of 1.40\,\% and a mean accuracy of 97.4\,\% against SPICE, and the 8-bit
+parity checker (28 NAND2, 256 input vectors $\times$ 200 corners) 1.36\,\% and 97.6\,\%, short of the
+99\,\% target. At both levels the largest errors come from leakage set by OFF PMOS transistors,
+mainly at low temperature and low PMOS $|v_{th0}|$.
 
 \section{Setup}
 
@@ -420,9 +429,13 @@ Mean accuracy, ideal 0/VDD outputs & 97.4\,\% & 56.4\,\% & 97.0\,\% \\
 both ends on the same rail (the OFF PMOS of NAND2 01/10, the OFF NMOS of NOR2 01/10 and the
 corresponding AND2/OR2 cases) sits at $|V_{ds}| \approx 0.1$--\SI{600}{\micro V}. The OFF training data
 barely covers this (24 of 10{,}000 PMOS OFF samples below 1\,mV), and there the networks extrapolate to
-unphysical currents (up to \SI{e265}{A}). Such a transistor is therefore evaluated at $|V_{ds}| = 1$\,mV
-(1{,}600 of the 3{,}600 rows contain one). With a floor of 0.1\,mV every case median is the same, but single
-NAND2/AND2 corners still reach up to 105\,\% error. The transistor models themselves are unchanged.
+unphysical currents (up to \SI{e265}{A}). Such a transistor is therefore evaluated at $|V_{ds}| = 1$\,mV,
+a round value where the training data starts to be populated (only 0.24\,\% of the PMOS OFF samples lie below it; 1{,}600 of the 3{,}600 rows contain
+one such transistor). Physically its channel current there is a small fraction of its full-$V_{ds}$
+subthreshold current, and in the leakage sum it only adds to currents that are much larger. The
+transistor models themselves are unchanged. As a sensitivity check only (the gate SPICE results are
+not used to set it), a smaller floor does not remove the problem: at 0.1\,mV every case median is the
+same, but single NAND2/AND2 corners still reach 105\,\% error.
 
 \subsection{Results}
 Table~\ref{tab:gates} lists the 18 cases and Fig.~\ref{fig:gateparity} the parity plot. Over all 3{,}600
@@ -653,8 +666,13 @@ At the circuit level (Table~\ref{tab:circuit}; breakdown in \texttt{results/circ
         temperature.
   \item \textbf{Not SPICE-free.} As spec step 4 prescribes, the gate ML uses gate-level SPICE node
         voltages at the same corner, so the hierarchical estimate exists only at the 200 Part~B corners.
-        Solving the internal node voltages from the transistor models (Kirchhoff's current law) would
-        remove that dependence.
+        With Kirchhoff's law for the ON transistors the output-type nodes are not needed (97.4\,\% mean
+        accuracy with them set to exactly 0 or VDD, Table~\ref{tab:gatemethods}); only the stack nodes
+        $x$ and $y$ still come from SPICE. Solving those from the transistor models as well would remove
+        the dependence.
+  \item \textbf{OFF transistors at $|V_{ds}| \approx 0$} are evaluated at 1\,mV because the OFF datasets
+        contain almost no samples there. Adding OFF samples with $|V_{d} - V_{s}|$ down to
+        \SI{0.1}{\micro V} to the training data would remove this workaround.
 \end{itemize}
 
 \appendix
@@ -702,8 +720,8 @@ E & $128\times3$, batch 128             & 0.72\,\% & 0.62\,\% & 0.73\,\% & 14.37
 
 \section{Target-transform study}
 \label{app:tt}
-Optional script \texttt{experiments/target\_transforms.py} (about 1.5--2.5\,h; outputs in
-\texttt{results/experiments/}, full tables in \texttt{transforms\_tables.md}). Validation set only;
+Optional script \texttt{experiments/target\_transforms.py} (about 1.5--2.5\,h; it writes the
+full tables to \texttt{results/experiments/transforms\_tables.md}). Validation set only;
 the test rows are never loaded. Each transform builds on the previous one unless noted:
 \begin{itemize}[itemsep=1pt]
   \item \textbf{asinh}: the earlier target $\operatorname{asinh}(I/\SI{1e-18}{A})$ (seed 42 only).
@@ -720,20 +738,8 @@ the test rows are never loaded. Each transform builds on the previous one unless
 \end{itemize}
 The MLP (network settings of the Models section) and XGBoost (its settings and features, applied to
 $I_d, I_g, I_s, I_b$ directly) were trained with seeds 42, 43 and 44. ``Best'' and the final choice
-use the rule of Section~\ref{sec:choice}, applied to the mean over the three seeds. Table~\ref{tab:tt}
-shows the MLP for seed 42, the seed of the saved models. T2 and all XGBoost rows are in the full
+use the rule of Section~\ref{sec:choice}, applied to the mean over the three seeds. T2 and all XGBoost rows are in the full
 tables: XGBoost did not improve on its own design with any transform.
-
-\begin{table}[!htbp]
-\centering
-\small
-\caption{Target-transform study, MLP, seed 42, validation set: mean of the four median errors /
-mean of the four p95 errors [\%]. For T4 and T5 the base transform is in brackets. Bold: the
-adopted target. Source: \texttt{results/experiments/appendix\_table.tex}.}
-\label{tab:tt}
-\IfFileExists{../results/experiments/appendix_table.tex}{\input{../results/experiments/appendix_table.tex}}%
-  {\pending{run \texttt{experiments/target\_transforms.py} to generate this table.}}
-\end{table}
 
 \textbf{Which choices are within seed variation} (mean over seeds 42--44 $\pm$ standard deviation of
 the mean median error):

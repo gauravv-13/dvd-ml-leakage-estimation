@@ -33,13 +33,13 @@ Configured in [`config.yaml`](config.yaml).
 | 4 | 200 shared corners + gate SPICE reference (18 cases) | B.3 | `04_gen_corners.py`, `05_gate_spice.py` | ✅ done (3,600 simulations) |
 | 5 | Gate-level ML prediction and comparison | B.4–5 / deliverables 6–7 | `06_gate_preds.py` | ✅ done (median error 1.4 %, mean accuracy 97.4 %) |
 | 6 | Test circuit: SPICE + hierarchical ML | C.6–8 / deliverable 8 | `07_circuit_spice.py`, `08_circuit_ml.py` | ✅ done (median error 1.36 %, mean accuracy 97.6 %) |
-| 7 | Figures, tables, report | deliverables 9–10 | `report/` (each script writes its own figures and tables) | ⬜ |
+| 7 | Figures, tables, report | deliverables 9–10 | `report/` (each script writes its own figures and tables) | ✅ report written |
 
 Scripts run in numeric order. All randomness comes from seeds in `config.yaml`.
 
 Optional, not a pipeline step: `python experiments/target_transforms.py` (~2.5 h, all cores; 94 min
 on a 10-core laptop) then `python experiments/worst_rows.py` regenerate the report appendix
-"Target-transform study" (`results/experiments/`), which chose the MLP target recipes.
+"Target-transform study" (`results/experiments/`, not committed), which chose the MLP target recipes.
 
 ## Setup
 
@@ -47,9 +47,24 @@ on a 10-core laptop) then `python experiments/worst_rows.py` regenerate the repo
 brew install ngspice libomp
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python 01_gen_transistor_data.py   # ~2 min
-python 02_data_checks.py           # results/kcl_check.csv, figures/
+
+python 01_gen_transistor_data.py   # ~2 min, data/transistor/
+python 02_data_checks.py           # results/kcl_check.csv, trend plots
+python 03_make_split.py            # 70/15/15 split per case
+python 03_train_mlp.py             # saved_models/mlp/
+python 03_train_xgboost.py
+python 03_train_poly_ridge.py      # ~12 min on 22 cores
+python 03_train_rf.py
+python 03_select_and_test.py       # comparison, choice, test results and plots
+python 04_gen_corners.py           # 200 shared PVT corners
+python 05_gate_spice.py            # ~11 s, 3,600 gate simulations
+python 06_gate_preds.py            # ~1 min, gate ML vs SPICE
+python 07_circuit_spice.py         # ~5.5 min, 51,200 circuit simulations
+python 08_circuit_ml.py            # ~2 s, circuit ML vs SPICE
+python -m pytest tests/ -q         # 19 tests
 ```
+
+The report is `report/main.tex` (compile from `report/`; figures are read from `figures/` and `results/`).
 
 ## Layout
 
@@ -63,13 +78,14 @@ src/target_transform.py  MLP target recipes: drain/source swap, log10|I| targets
 src/xgb_model.py       XGBoost transistor model (features, XGBFET class, saved by 03_train_xgboost.py)
 src/poly_ridge.py      polynomial ridge transistor model (features, PolyRidgeFET class)
 src/circuit.py         test-circuit gate list (read from the netlist) and logic; writes data/circuit/gates.csv
-models/                PTM BSIM4 model cards
-reference/             spec, slides, TA example netlist
+models/                assigned PTM BSIM4 model card (32nm_HP.pm)
+reference/             spec and course slides
 netlists/transistor/   hand-written single-transistor netlists, one per case (deliverable 2)
 netlists/gates/        hand-written gate netlists: inv, nand2, nor2, and2, or2 (deliverable 2)
 netlists/circuit/      hand-written test-circuit netlist: parity8.cir, 28 NAND2, out = 1 for an odd number of 1s (deliverable 2)
 experiments/           optional studies (target_transforms.py, worst_rows.py) -> results/experiments/
-data/ results/ figures/ saved_models/ report/   generated outputs
+tests/                 tests of the XGBoost script and the circuit ML
+data/ results/ figures/ saved_models/mlp/ report/   generated outputs (only the four chosen models are committed)
 ```
 
 ## How the transistor data is simulated
@@ -84,7 +100,7 @@ of the 10,000 sampled rows in turn and runs ngspice once per row.
 - **Current sign:** every stored current is the current flowing *into* the device terminal
   (`I = -i(Vsource)` in ngspice).
 - **Junction geometry:** `AD = AS = W·Ldiff`, `PD = PS = 2(W + Ldiff)`, `Ldiff = 2·Lmin`
-  (`Ldiff` is defined in the TA example netlist), written as expressions in each netlist. Only Ib depends on it
+  (`Ldiff` as defined in the TA's example netlist), written as expressions in each netlist. Only Ib depends on it
   (measured on NMOS OFF, W = 64 nm: Ib = 3.3e-17 A with geometry vs 1.0e-14 A without; Id, Ig, Is unchanged).
 - **ngspice `altermod` pitfall:** a multi-parameter line such as `altermod nmos vth0=.. toxe=..`
   applies **only the first** parameter and silently ignores the rest. The netlists use one
@@ -97,7 +113,6 @@ of the 10,000 sampled rows in turn and runs ngspice once per row.
   Currents below about 1e-15 A sit at this ~1e-16 A noise floor and are not reproducible between
   equivalent simulations (most affected: PMOS OFF Ig, PMOS ON/OFF Ib).
 - **Netlist options** (spec): `.options gmin=1e-18 abstol=1e-18 reltol=1e-6 vntol=1e-9`.
-  The TA example netlist (`reference/22n_NMOS_ON.net`) uses older options and is kept only for reference.
 
 ## Gate SPICE reference (Phase 4)
 
@@ -116,7 +131,8 @@ of the 10,000 sampled rows in turn and runs ngspice once per row.
 
 ## Polynomial ridge model (Phase 3)
 
-`03_train_poly_ridge.py` (~12 min on 22 cores) saves `saved_models/poly_ridge/<case>.joblib`.
+`03_train_poly_ridge.py` (~12 min on 22 cores) saves `saved_models/poly_ridge/<case>.joblib`
+(not committed: only the four chosen models are kept in the repo; rerun the script to recreate them).
 Load with `joblib.load(...)` from the repo root (the class lives in `src/poly_ridge.py`);
 `model.predict(df)` takes the dataset input columns and returns Id, Ig, Is, Ib [A] (n × 4).
 
@@ -186,3 +202,27 @@ four chosen (MLP) transistor models and compares it with SPICE.
   cases (INV 1, NAND2 11, AND2 00, NOR2 01, NOR2 10: median 2.2–4.0 %) are those whose leakage is
   89–99 % set by the PMOS OFF model (the least accurate transistor model); cases with no PMOS OFF
   contribution, where the NMOS OFF model carries the leakage, are at 0.24–1.07 %.
+
+## Test-circuit ML prediction (Phase 6)
+
+`08_circuit_ml.py` (~2 s) builds the parity checker's leakage from the Phase 5 gate predictions and
+compares it with the circuit SPICE reference of `07_circuit_spice.py`.
+
+- **Gate inputs:** for each of the 256 vectors, `src/circuit.py` gives every net's logic value, so each
+  of the 28 NAND2 has known input bits in pin order (A = NMOS at ground).
+- **Gate leakage:** the circuit uses the Part B corners, so each gate's ML leakage is the Phase 5
+  prediction for that gate, inputs and corner (`leak_preds` in `data/gates/gate_ml.csv`).
+- **Circuit leakage:** the sum over the 28 gates. The same sum of the gate SPICE leakages ("no ML")
+  measures the cost of the hierarchical assumptions (ideal 0/VDD inputs, no loading).
+- **Outputs:** `data/circuit/circuit_ml.csv` (per vector and corner), `results/circuit_results.csv`
+  (deliverable 8), `results/circuit_error_breakdown.csv`, `results/circuit_error_drivers.csv`,
+  `figures/circuit_parity.png`.
+
+| Circuit vs SPICE (51,200 rows) | Bias | Median error | p95 | Mean accuracy | Max |
+|---|---|---|---|---|---|
+| ML sum of gate predictions | −0.91 % | 1.36 % | 7.6 % | 97.6 % | 22.3 % |
+| Gate SPICE sum (no ML) | −0.04 % | 0.04 % | 0.21 % | 99.9 % | 0.51 % |
+
+The hierarchy itself costs only 0.04 %, so the circuit error is the gate error carried over, mostly
+that of the NAND2 gates at input 11 (two OFF PMOS); the corner, not the input vector, sets it.
+
