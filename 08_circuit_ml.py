@@ -135,6 +135,25 @@ def main() -> None:
     print(f"error variance explained by the corner: {corner_share:.3f} | per-vector median |error| "
           f"{per_vector.min():.2f}-{per_vector.max():.2f} % | without cancellation between gates: median "
           f"{pd.Series(no_cancel).median():.2f} %, p95 {pd.Series(no_cancel).quantile(0.95):.2f} %")
+    # circuit error with only the 11 gates' ML error (others at SPICE) and with only the others' error
+    gate_err = nand.assign(e11=lambda g: (g.ml_leak - g.spice_leak) * (g.inputs == "11"),
+                           e_rest=lambda g: (g.ml_leak - g.spice_leak) * (g.inputs != "11"))
+    for col in ["e11", "e_rest"]:
+        part = circuit_sum(counts, gate_err, col).reindex(pd.MultiIndex.from_frame(df[["vector", "corner"]]))
+        pe = errors(df.gate_spice_sum + part.to_numpy(), df.spice_leak)
+        print(f"only the {col} gate errors: median |error| {pe.abs().median():.3f} %, bias {pe.median():.3f} %")
+    w = with_corners.loc[e.idxmax()]
+    print(f"max |error| {e.max():.2f} % (signed {df.ml_err_pct[e.idxmax()]:.2f} %) at corner {w.corner:.0f}, vector "
+          f"{w.vector:.0f}, where NAND2 at 11 carry {w.nand2_11_share:.3f} of the leakage")
+    share = with_corners.groupby("corner").agg(share=("nand2_11_share", "median"), temp=("temp", "first"),
+                                               pmos_abs_vth0=("p_vth0", lambda s: s.abs().iloc[0]),
+                                               nmos_vth0=("n_vth0", "first"))
+    nand11 = nand[nand.inputs == "11"].set_index("corner")
+    share = share.assign(e11=errors(nand11.ml_leak, nand11.spice_leak))
+    conds = ["pmos_abs_vth0", "nmos_vth0", "temp"]
+    print("Spearman with per-corner median 11 share:",
+          {c: round(float(share[c].corr(share.share, method="spearman")), 2) for c in conds},
+          "| with signed NAND2 11 error:", {c: round(float(share[c].corr(share.e11, method="spearman")), 2) for c in conds})
     print(f"worst 1 % of rows: {(e >= e.quantile(0.99)).sum()} rows from corners {worst.corner.tolist()} "
           f"(T {worst.temp.round(1).tolist()} C, PMOS |vth0| {worst.p_vth0.abs().round(3).tolist()} V)")
     print("drivers (Spearman of per-corner median |error|):", drv.set_index("condition").spearman_r.round(2).to_dict())
