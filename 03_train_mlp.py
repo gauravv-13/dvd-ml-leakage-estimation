@@ -2,15 +2,17 @@
 
 Per case (nmos_on, nmos_off, pmos_on, pmos_off), one MLP predicts all four currents
 (src/mlp_model.py, target recipes in src/target_transform.py).
-  Inputs  : the 12 input columns of the dataset CSV plus Vd-Vs, Vg-Vs, Vb-Vs and 1/T (T in kelvin);
-            with the "extra" recipe also Vds/Vt, Vgs/Vt, Vbs/Vt and log10(1 - exp(-|Vds|/Vt) + 1e-12);
-            standardised on the training set
-  Outputs : log10 of the current magnitudes (per recipe, see RECIPES), each standardised, plus a
-            sign output for every current whose sign is not fixed
-  Recipes : chosen per case on the validation set by experiments/target_transforms.py
-            (report appendix "Target-transform study"): canonical drain/source swap, per-width
-            targets, and per case the saturation target, extra inputs, Is from Kirchhoff or clipped
-            labels
+  Inputs  : the 12 input columns of the dataset CSV plus Vd-Vs, Vg-Vs, Vb-Vs and 1/T (T in kelvin),
+            in the canonical drain/source frame; standardised on the training set
+  Outputs : channel current Ich = (Id - Is)/2 as log10(|Ich| / (W (1 - exp(-|Vds|/Vt)))), and
+            log10(|Ig|/W), log10(|Ib|/W), each standardised, plus a sign output for Ig / Ib when their
+            sign is not fixed; Id = Ich + Icm, Is = -Ich + Icm with Icm = -(Ig + Ib)/2 (Kirchhoff)
+  Recipe  : "chan" for all four cases (src/target_transform.py; experiments/channel_target.py):
+            zero channel current at Vds = 0 by construction (Guo et al. 2023, Eq. 3; Novkin et al.
+            2026, Eq. 1), drain/source symmetry from the canonical swap and |Vds|, exact Kirchhoff.
+            It replaces the per-case recipes of the target-transform study, whose OFF-case input
+            log10(1 - exp(-|Vds|/Vt)) made the networks diverge (up to 1e265 A) at the |Vds| < 0.1 mV
+            that transistors see inside gates
   Split   : data/transistor/split_<case>.csv (03_make_split.py); trained on train, scored on val
   Settings: fixed per case (SETTINGS below); SiLU activations, L1 loss on the magnitudes plus
             logistic loss on the signs, AdamW, one-cycle learning-rate schedule (peak 3e-3),
@@ -43,14 +45,9 @@ COMMON = {"activation": "silu", "loss": "l1", "lr": 3e-3, "batch": 256}
 SMALL = {**COMMON, "width": 128, "depth": 3, "epochs": 6000, "weight_decay": 0.0}
 LARGE = {**COMMON, "width": 256, "depth": 4, "epochs": 3000, "weight_decay": 1e-3}
 SETTINGS = {"nmos_on": SMALL, "pmos_on": SMALL, "nmos_off": LARGE, "pmos_off": LARGE}
-# target recipe per case (flags: src/target_transform.py); names from the transform study
-BASE = {"swap": 1, "perw": 1}
-RECIPES = {
-    "nmos_on":  {**BASE, "sat": 1},                  # T3b
-    "nmos_off": {**BASE, "extra": 1, "kcl": 1},      # T4 on T3a
-    "pmos_on":  {**BASE, "sat": 1},                  # T3b
-    "pmos_off": {**BASE, "extra": 1, "clip": 1},     # T5 on T3a
-}
+# target recipe per case (flags: src/target_transform.py; study: experiments/channel_target.py)
+CHAN = {"swap": 1, "perw": 1, "chan": 1}
+RECIPES = {case: CHAN for case in ["nmos_on", "nmos_off", "pmos_on", "pmos_off"]}
 
 
 def load(case: str):

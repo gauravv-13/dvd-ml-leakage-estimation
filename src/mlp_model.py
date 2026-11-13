@@ -59,8 +59,10 @@ class MLPFET:
     @classmethod
     def fit(cls, case: str, settings: dict, recipe: dict, train: pd.DataFrame, seed: int) -> "MLPFET":
         self = cls.__new__(cls)
-        self.case, self.settings, self.recipe, self.seed = case, dict(settings), dict(recipe), seed
         d, _ = canonical(train, case, recipe)
+        if recipe.get("dt") and "dt_gamma" not in recipe:   # first quartile of the training Vds
+            recipe = {**recipe, "dt_gamma": float(np.quantile((d.vd - d.vs).abs(), 0.25))}
+        self.case, self.settings, self.recipe, self.seed = case, dict(settings), dict(recipe), seed
         self.plan = Plan(case, recipe, d)
         X = mlp_inputs(d, recipe)
         Y, S = self.plan.targets(d, recipe)

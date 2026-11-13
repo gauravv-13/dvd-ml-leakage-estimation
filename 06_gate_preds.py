@@ -308,17 +308,6 @@ def get_gate_transistors(simul_row):
             pass
 
 
-VDS_FLOOR = 1e-3  # V; the training data barely covers |Vds| below this
-
-def floor_vds(df_params):
-    """OFF transistors with |Vds| < 1 mV are evaluated at 1 mV (training-data coverage).
-    Vd is moved 1 mV away from Vs, towards the inside of [0, VDD]; the model is unchanged."""
-    df_params = df_params.copy()
-    small = (df_params['vd'] - df_params['vs']).abs() < VDS_FLOOR
-    step = np.where(df_params['vs'] > df_params['vdd'] / 2, -VDS_FLOOR, VDS_FLOOR)
-    df_params.loc[small, 'vd'] = df_params.loc[small, 'vs'] + step[small]
-    return df_params
-
 def predict_gate_leakage(transistors):
     static_pwr = 0
     vdd_val = transistors[0]['tx_data']['vdd']
@@ -334,11 +323,11 @@ def predict_gate_leakage(transistors):
                 current_preds = models['NMOS_ON'].predict(df_params)
                 # (vd.id+vs.is+vg.ig+vb.ib)/vdd
             case 'nmos_off':
-                current_preds = models['NMOS_OFF'].predict(floor_vds(df_params))
+                current_preds = models['NMOS_OFF'].predict(df_params)
             case 'pmos_on':
                 current_preds = models['PMOS_ON'].predict(df_params)
             case 'pmos_off':
-                current_preds = models['PMOS_OFF'].predict(floor_vds(df_params))
+                current_preds = models['PMOS_OFF'].predict(df_params)
             case _:
                 pass
         static_pwr += (

@@ -175,17 +175,18 @@ below), but every model's predictions are converted back to amperes before scori
 \paragraph{MLP (PyTorch).} One network per case predicts all four currents.
 \emph{Targets.} Drain and source are first put in a canonical order: NMOS rows with $V_d < V_s$
 and PMOS rows with $V_s < V_d$ have $V_d/V_s$ and $I_d/I_s$ swapped (gate and body unchanged), and the
-predictions are swapped back. The canonical $I_d$ then always flows in the channel direction (into
-the NMOS drain, out of the PMOS drain), so its sign is fixed. The network predicts
-$\log_{10}(|I|/W)$ of each current, standardised, and, for every current whose sign is not fixed, a
-sign output (logistic loss). The canonical $I_s$ keeps its sign output: in the OFF cases its sign is
-set by a near-cancellation of channel and junction leakage and is opposite to the channel direction
-in 59\,\% of NMOS OFF and 44\,\% of PMOS OFF samples. Per case (chosen on the validation set,
-Appendix~\ref{app:tt}): ON cases divide $I_d$ and $I_s$ also by the subthreshold drain factor,
-target $\log_{10}\bigl(|I| / (W(1-e^{-|V_{ds}|/V_T}))\bigr)$; the OFF cases add four inputs
-($V_{ds}/V_T$, $V_{gs}/V_T$, $V_{bs}/V_T$, $\log_{10}(1-e^{-|V_{ds}|/V_T}+10^{-12})$, $V_T = kT/q$);
-NMOS OFF does not predict $I_s$ but takes $I_s = -(I_d + I_g + I_b)$; PMOS OFF trains on labels
-clipped to $|I| \ge \SI{1e-17}{A}$ (it is still scored against the raw SPICE values).
+predictions are swapped back. The canonical channel current then always flows in the channel
+direction (into the NMOS drain, out of the PMOS drain), so its sign is fixed. All four cases use one
+target, the \emph{channel target} (Appendix~\ref{app:chan}): the network predicts the channel current
+$I_{ch} = (I_d - I_s)/2$ as $\log_{10}\bigl(|I_{ch}| / (W(1-e^{-|V_{ds}|/V_T}))\bigr)$ ($V_T = kT/q$),
+and $\log_{10}(|I_g|/W)$, $\log_{10}(|I_b|/W)$, each standardised, plus a sign output (logistic loss)
+for $I_g$ or $I_b$ where their training sign is mixed. The common part follows from Kirchhoff,
+$I_{cm} = (I_d + I_s)/2 = -(I_g + I_b)/2$, and $I_d = I_{cm} + I_{ch}$, $I_s = I_{cm} - I_{ch}$, so every
+prediction satisfies $I_d + I_g + I_s + I_b = 0$. The factor $1-e^{-|V_{ds}|/V_T}$ makes the channel
+current exactly zero at $V_{ds} = 0$ whatever the network outputs, the construction used by neural
+compact models ($I_{ds} = V_{ds}\exp(\mathrm{NN})$ in Guo et al.\ 2023 and Novkin et al.\ 2026;
+here in the weak-inversion form of the EKV core model used by Kao et al.\ 2022), and the drain/source
+swap with $|V_{ds}|$ makes swapping drain and source swap $I_d$ and $I_s$ exactly.
 \emph{Inputs:} the 12 CSV inputs plus $V_d-V_s$, $V_g-V_s$, $V_b-V_s$ and $1/T$ (T in K), computed after
 the swap and standardised on the training set.
 \emph{Network:} fully connected, SiLU activations, L1 loss on the magnitudes, AdamW, one-cycle
@@ -300,21 +301,24 @@ forest      & NMOS OFF & 76.32 / 77.25 / 73.10 / 34.98 & 419.7 / 700.2 / 527.1 /
 \textbf{Rule.} For each case, the chosen model type is the one with the lowest validation median
 error averaged over $I_d, I_g, I_s, I_b$; the averaged p95 error is checked next to it. Only the
 validation set is used for the choice; the test set is used afterwards, on the chosen models only.
-The test set has been scored twice: first with the earlier MLP targets
+The test set has been scored three times: with the earlier MLP targets
 ($\operatorname{asinh}(I/\SI{1e-18}{A})$, with XGBoost chosen for PMOS OFF; mean test medians 0.74,
-0.58, 0.70 and 11.42\,\%), then with the present models. The target study that led to the change
-(Appendix~\ref{app:tt}) used only the validation set, so the test rows did not influence it.
+0.58, 0.70 and 11.42\,\%), with the per-case $\log_{10}$ recipes of Appendix~\ref{app:tt} (0.15,
+0.14, 0.15 and 8.42\,\%), and with the present channel target. Both changes were decided without the
+test rows: the first on the validation set, the second because the per-case OFF networks diverged on
+the transistor biases inside gates (Appendix~\ref{app:chan}), checked on the validation set and the
+Part~B gate data.
 
 \textbf{Choice} (validation, mean of the four medians / mean of the four p95):
 \begin{itemize}
-  \item \textbf{NMOS ON, NMOS OFF, PMOS ON: MLP} (0.15 / 1.1\,\%, 0.13 / 1.2\,\%, 0.15 / 1.3\,\%). Its median
-        error is 12--15 times lower than the next model's, and its p95 is also the lowest.
-  \item \textbf{PMOS OFF: MLP} (8.1 / 222\,\%, against 10.8 / 107\,\% for XGBoost). The p95 check goes the
+  \item \textbf{NMOS ON, NMOS OFF, PMOS ON: MLP} (0.18 / 1.2\,\%, 0.12 / 0.97\,\%, 0.16 / 1.4\,\%). Its median
+        error is 11--17 times lower than the next model's, and its p95 is also the lowest.
+  \item \textbf{PMOS OFF: MLP} (8.0 / 233\,\%, against 10.8 / 107\,\% for XGBoost). The p95 check goes the
         other way here, and only because of $I_g$ and $I_b$: about 60\,\% of the PMOS OFF $I_g$ and half
         of its $I_b$ values lie below \SI{1e-15}{A}, at the simulator noise floor
         (Section~\ref{sec:kcl}), and their sign is close to random. On the samples with
-        $|I| \ge \SI{1e-15}{A}$ the MLP's median errors are 2.5 / 3.5 / 2.5 / 2.3\,\% against
-        5.7 / 5.7 / 5.4 / 3.3\,\% for XGBoost, and its $I_g$/$I_b$ p95 are 18.5 / 13.2\,\% against
+        $|I| \ge \SI{1e-15}{A}$ the MLP's median errors are 2.2 / 3.7 / 2.2 / 2.3\,\% against
+        5.7 / 5.7 / 5.4 / 3.3\,\% for XGBoost, and its $I_g$/$I_b$ p95 are 19.3 / 11.4\,\% against
         27.3 / 14.4\,\%. The MLP is kept, following the rule.
 \end{itemize}
 The four chosen models are \texttt{saved\_models/mlp/<case>.joblib} (\texttt{results/chosen\_models.csv});
@@ -332,23 +336,23 @@ Source: \texttt{results/test\_results.csv}.}
 \toprule
 Case & Model & Median error (\%) & mean & p95 error (\%) & mean \\
 \midrule
-NMOS ON  & MLP & 0.13 / 0.14 / 0.13 / 0.21 & 0.15 & 0.8 / 1.4 / 0.8 / 1.2 & 1.1 \\
-NMOS OFF & MLP & 0.14 / 0.06 / 0.13 / 0.22 & 0.14 & 1.5 / 0.4 / 1.8 / 1.5 & 1.3 \\
-PMOS ON  & MLP & 0.13 / 0.11 / 0.13 / 0.21 & 0.14 & 0.7 / 0.6 / 0.7 / 4.1 & 1.5 \\
-PMOS OFF & MLP & 3.01 / 15.77 / 2.99 / 11.90 & 8.42 & 23.3 / 450.0 / 25.7 / 621.0 & 280.0 \\
+NMOS ON  & MLP & 0.17 / 0.17 / 0.17 / 0.19 & 0.17 & 1.1 / 1.6 / 1.1 / 1.1 & 1.2 \\
+NMOS OFF & MLP & 0.10 / 0.06 / 0.10 / 0.20 & 0.11 & 1.0 / 0.3 / 1.1 / 1.0 & 0.86 \\
+PMOS ON  & MLP & 0.16 / 0.10 / 0.16 / 0.20 & 0.16 & 0.9 / 0.5 / 0.9 / 3.7 & 1.5 \\
+PMOS OFF & MLP & 2.63 / 17.13 / 2.78 / 12.59 & 8.78 & 62.8 / 426.5 / 66.0 / 524.2 & 269.9 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The test errors are close to the validation errors (mean median 0.15 vs 0.15\,\%, 0.14 vs 0.13\,\%,
-0.14 vs 0.15\,\% and 8.4 vs 8.1\,\%), so the choices made on the validation set did not overfit it.
+The test errors are close to the validation errors (mean median 0.17 vs 0.18\,\%, 0.11 vs 0.12\,\%,
+0.16 vs 0.16\,\% and 8.8 vs 8.0\,\%), so the choices made on the validation set did not overfit it.
 Figure~\ref{fig:testplots} plots predicted against SPICE currents on the test set. In the ON cases
 no $I_d$/$I_s$ error exceeds 100\,\% and no prediction has the wrong sign (the earlier asinh targets
-had 43 such errors, 41 of them at $|V_d - V_s| < \SI{20}{mV}$); NMOS OFF has 3 such errors and 2 wrong
-signs. For PMOS OFF, 40 of the 46 $I_d$/$I_s$ errors above 100\,\% and 476 of the 478 predictions with
-the wrong sign (mostly $I_g$ and $I_b$) are at SPICE currents below about \SI{1.3e-15}{A}, i.e.\ at the
-noise floor; on the samples with $|I| \ge \SI{1e-15}{A}$ its test median errors are
-2.5 / 3.4 / 2.5 / 2.4\,\%.
+had 43 such errors, 41 of them at $|V_d - V_s| < \SI{20}{mV}$); NMOS OFF has 3 such errors and 3 wrong
+signs. For PMOS OFF all 110 $I_d$/$I_s$ errors above 100\,\% and all 504 predictions with the wrong
+sign (21 $I_d$, 191 $I_g$, 20 $I_s$, 272 $I_b$) are at SPICE currents below \SI{1.3e-15}{A}, i.e.\ at the
+noise floor, where $I_d$ and $I_s$ include $I_{cm} = -(I_g + I_b)/2$ built from noise-floor currents;
+on the samples with $|I| \ge \SI{1e-15}{A}$ its test median errors are 2.0 / 3.4 / 2.1 / 2.2\,\%.
 
 \begin{figure}[!htbp]
 \centering
@@ -390,21 +394,22 @@ so the hierarchical ML accuracy is set by the gate-level predictions.
 \section{Error analysis}
 At the transistor level (MLP, validation set):
 \begin{itemize}
-  \item \textbf{PMOS OFF is the hardest case} (8.1\,\% mean median error vs 0.13--0.15\,\% for the
-        others), driven by $I_g$ and $I_b$ (14.3 and 12.0\,\% median). Most of these currents are below
+  \item \textbf{PMOS OFF is the hardest case} (8.0\,\% mean median error vs 0.12--0.18\,\% for the
+        others), driven by $I_g$ and $I_b$ (14.7 and 11.7\,\% median). Most of these currents are below
         \SI{1e-15}{A}, i.e.\ at the simulator noise floor found in the Kirchhoff check, so the targets
         themselves are not reproducible and their sign is close to random (150--170 $I_g$ and 260--300
-        $I_b$ wrong signs in 1{,}500 validation samples for every target tried; 158 and 303 for the chosen model). On the samples above
-        \SI{1e-15}{A} the four median errors are 2.3--3.5\,\%; the error is limited by the data, not the model.
+        $I_b$ wrong signs in 1{,}500 validation samples for every target tried; 164 and 287 for the chosen model). On the samples above
+        \SI{1e-15}{A} the four median errors are 2.2--3.7\,\%; the error is limited by the data, not the model.
   \item \textbf{Small $|V_d - V_s|$ in the ON cases.} With the earlier asinh targets most of the
         largest $I_d$/$I_s$ errors were at $|V_d - V_s| < \SI{20}{mV}$, where the channel current passes
         through zero and changes sign (median error 7.6\,\% there). Predicting the sign separately,
-        the drain/source swap and the saturation-factor target bring this to 0.4--0.5\,\% for the
-        chosen models (Appendix~\ref{app:tt}).
+        the drain/source swap and the saturation-factor target bring this to 0.68\,\% (NMOS ON) and
+        0.43\,\% (PMOS ON) median for the chosen models (Appendices~\ref{app:tt} and~\ref{app:chan}).
   \item \textbf{The lower-voltage terminal in the OFF cases.} The current at the terminal nearer
-        ground (canonical $I_s$) is a near-cancellation of channel and junction leakage; where it is
-        below 1\,\% of $|I_d|$ (15 NMOS OFF and 4 PMOS OFF validation samples) its error stays large
-        (15\,\% and about 4{,}000\,\% median for the chosen models), also when it is computed from Kirchhoff.
+        ground (canonical $I_s$) is a near-cancellation of channel and junction leakage; where the canonical
+        $|I_s|$ is below 1\,\% of the canonical $|I_d|$ (24 NMOS OFF and 9 PMOS OFF validation samples) its
+        error stays large: 9.0\,\% and 712\,\% median for the chosen models (22\,\% and 349\,\% for the per-case
+        recipes of Appendix~\ref{app:tt}, same samples).
   \item $I_g$ and $I_b$ in NMOS ON, NMOS OFF and PMOS ON are accurate (median $\le 0.25\,\%$), as they
         vary smoothly with the inputs.
 \end{itemize}
@@ -416,11 +421,13 @@ conditions (temperature, $v_{th0}$).}
   \item \textbf{Simulator noise floor.} Currents below \SI{1e-15}{A} are not reproducible with
         the unmodified card, which caps the accuracy for PMOS OFF $I_g/I_b$. These currents are
         negligible in a gate sum, so their effect on gate leakage should be small.
-  \item \textbf{Target choices within seed variation.} Several per-case target choices are closer
-        than the spread between training seeds (Appendix~\ref{app:tt}); the choice follows the
-        rule, but the runner-up would be about as good.
-  \item \textbf{Test set used twice} (Section~\ref{sec:choice}): once with the earlier targets and
-        once with the present ones. The change was decided on the validation set only.
+  \item \textbf{Channel target costs a little ON accuracy.} It raises the ON validation median from
+        0.155 to 0.183\,\% (NMOS) and 0.152 to 0.164\,\% (PMOS) against the per-case recipes, more than
+        their seed spread (about 0.004\,\%); it was kept because it makes every prediction satisfy
+        Kirchhoff and gives zero channel current at $V_{ds} = 0$, which the gate level needs
+        (Appendix~\ref{app:chan}).
+  \item \textbf{Test set used three times} (Section~\ref{sec:choice}). Neither target change was decided
+        on the test rows.
   \item \textbf{Ensembling.} With the earlier asinh targets, averaging five MLPs trained with seeds
         42--46 roughly halved the median error (e.g.\ NMOS ON 0.71\,\% $\to$ 0.40\,\%, PMOS OFF
         12.0\,\% $\to$ 8.8\,\%) at five times the training cost; it was not repeated with the present
@@ -531,5 +538,47 @@ current is a near-cancellation of channel and junction leakage. The 30 worst sam
 (\texttt{experiments/worst\_rows.py}) show the same picture: in the ON cases 73--90\,\% have
 $|V_d - V_s| < \SI{20}{mV}$ (5\,\% of all samples); in NMOS OFF 28 of 30 are the current at the
 lower-voltage terminal; in PMOS OFF all 30 are below \SI{1e-15}{A}.
+
+\section{Channel target}
+\label{app:chan}
+Optional script \texttt{experiments/channel\_target.py} (about 12\,min; outputs in
+\texttt{results/experiments/channel\_target/}). Validation set and Part~B gate data only; the test rows
+are never loaded.
+
+\textbf{Problem.} Inside a gate a transistor often has almost no voltage across its channel: ON
+transistors sit at $|V_{ds}| \approx$ \SIrange{1}{30}{\micro V}, and an OFF transistor next to an ON one
+(e.g.\ NOR2 inputs 10, NAND2 inputs 01/10) at $|V_{ds}| \approx 10^{-7}$--$10^{-5}$\,V. The training
+data, drawn uniformly as the spec requires, has 1--2 samples per 10{,}000 below 0.1\,mV. The per-case
+OFF recipes of Appendix~\ref{app:tt} take $\log_{10}(1-e^{-|V_{ds}|/V_T}+10^{-12})$ as an input, which
+at such biases lies about 30 training standard deviations from its mean; there the NMOS OFF network
+returned $|I_s|$ up to \SI{1.7e265}{A} and the PMOS OFF network up to \SI{630}{A}, and the gate
+leakage $\sum V I / V_{DD}$ reached $10^{59}$\,A.
+
+\textbf{Approach from the literature.} Neural transistor models make the drain current vanish at
+$V_{ds} = 0$ by construction rather than by training: $I_{ds} = V_{ds}\exp(\mathrm{NN})$ with a
+$\log$-scale network output (Guo et al., \emph{Micromachines} 14:1150, 2023, Eq.~3; Novkin et al.,
+arXiv:2611.06127, 2026, Eq.~1), or a physics core model that vanishes at $V_{ds} = 0$ times
+$\exp(\mathrm{NN})$ (Kao, Kam, Hu, IEEE EDL 43:974, 2022, with the EKV core model). Drain/source
+symmetry comes from the sign of $V_{ds}$ and a network fed with $|V_{ds}|$ (Novkin et al.\ 2026) or
+from symmetric inputs (Kao et al.\ 2022). The channel target applies this: the channel current
+$(I_d - I_s)/2$ is divided by $W(1-e^{-|V_{ds}|/V_T})$, the weak-inversion form of the EKV core
+current (equal to $W V_{ds}/V_T$ as $V_{ds} \to 0$), in the canonical drain/source frame, and the common
+part $(I_d+I_s)/2 = -(I_g+I_b)/2$ is taken from conservation, as Novkin \& Amrouch take
+$Q_B = -(Q_D+Q_S+Q_G)$ (arXiv:2503.15209, Eq.~18). The network inputs are the raw voltages including
+$|V_{ds}|$ and $V_{gs}$ (as Novkin et al.\ 2026); the logarithmic input above is not used. As a variant,
+the $V_{ds}$/$V_{gs}$ domain transform of Guo et al.\ (2023, Eqs.~4--5) was added for the OFF cases.
+
+\textbf{Results} (seed 42, network settings unchanged). Validation, mean of the four median errors:
+NMOS ON 0.155 $\to$ 0.183\,\%, NMOS OFF 0.133 $\to$ 0.116\,\%, PMOS ON 0.152 $\to$ 0.164\,\%,
+PMOS OFF 8.13 $\to$ 8.03\,\% (with the domain transform: NMOS OFF 0.116\,\%, PMOS OFF 8.03\,\%). In a
+$V_{ds}$ sweep from \SI{1}{\micro V} to \SI{10}{mV} the channel current of every new model is proportional
+to $V_{ds}$ and goes to zero, while the per-case OFF networks changed sign below about 1\,mV; swapping
+drain and source swaps $I_d$ and $I_s$ exactly for every model. On all 3{,}600 gate simulations of
+Part~B, with the leakage computed as $\sum V I / V_{DD}$ over all terminals and no limit on $|V_{ds}|$,
+the median / p95 / max error is 1.88 / 27.4 / $2.7\times10^{72}$\,\% with the per-case recipes,
+1.75 / 12.2 / 86.5\,\% with the channel target for the OFF cases only, 1.32 / 8.4 / 26.5\,\% with the
+channel target for all four cases, and 1.43 / 8.2 / 18.9\,\% with the domain transform added for the
+OFF cases. The channel target without the domain transform is used for all four cases: it gives the
+lowest median and needs no extra parameter.
 
 \end{document}

@@ -21,8 +21,7 @@ import pandas as pd
 
 from .config import NETLIST_DIR, Config
 
-# Windows builds ship ngspice.exe (GUI, prints nothing to stdout) and ngspice_con.exe (console)
-NGSPICE = shutil.which("ngspice_con") or shutil.which("ngspice") or "ngspice"
+NGSPICE = shutil.which("ngspice") or "ngspice"
 SAMPLE_PARAMS = ["vdd", "temp", "w", "vd", "vs", "vth0", "toxe", "ndep", "u0", "xj"]
 _PRINT_RE = re.compile(r"^\s*i\(v[dgsb]\)\s*=\s*(\S+)", re.IGNORECASE)
 _VALUE_RE = re.compile(r"^\s*([vi]\(\w+\))\s*=\s*(\S+)", re.IGNORECASE)

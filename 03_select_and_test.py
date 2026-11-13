@@ -88,7 +88,7 @@ def choose(cmp: pd.DataFrame) -> pd.DataFrame:
         if folder is None:
             raise RuntimeError(f"{b.case}: chosen model type {b.model} has no saved model files")
         path = SAVED_MODELS_DIR / folder / f"{b.case}.joblib"
-        out.append({"case": b.case, "model": b.model, "file": str(path.relative_to(ROOT)),
+        out.append({"case": b.case, "model": b.model, "file": path.relative_to(ROOT).as_posix(),
                     "val_mean_median_err_pct": b.mean_median_err_pct, "val_mean_p95_err_pct": b.mean_p95_err_pct})
     return pd.DataFrame(out)
 

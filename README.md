@@ -31,7 +31,7 @@ Configured in [`config.yaml`](config.yaml).
 | 2 | Data checks: Kirchhoff + 3 trend plots | A.1 / deliverable 3 | `02_data_checks.py` | ✅ done |
 | 3 | ML models: 4 model types × 4 cases, select, test | A.2 / deliverables 4–5 | `03_make_split.py`, `03_train_mlp.py`, `03_train_xgboost.py`, `03_train_poly_ridge.py`, `03_train_rf.py`, `03_select_and_test.py` | ✅ done (MLP for all four cases) |
 | 4 | 200 shared corners + gate SPICE reference (18 cases) | B.3 | `04_gen_corners.py`, `05_gate_spice.py` | ✅ done (3,600 simulations) |
-| 5 | Gate-level ML prediction and comparison | B.4–5 / deliverables 6–7 | `06_gate_ml.py` | ✅ done (KCL for ON channel currents) |
+| 5 | Gate-level ML prediction and comparison | B.4–5 / deliverables 6–7 | `06_gate_preds.py` | ✅ done |
 | 6 | Test circuit: SPICE + hierarchical ML | C.6–8 / deliverable 8 | `07_circuit_spice.py`, `08_circuit_ml.py` | 🟨 SPICE reference done (51,200 simulations) |
 | 7 | Figures, tables, report | deliverables 9–10 | `09_figures_tables.py`, `report/` | ⬜ |
 
@@ -39,7 +39,9 @@ Scripts run in numeric order. All randomness comes from seeds in `config.yaml`.
 
 Optional, not a pipeline step: `python experiments/target_transforms.py` (~2.5 h, all cores; 94 min
 on a 10-core laptop) then `python experiments/worst_rows.py` regenerate the report appendix
-"Target-transform study" (`results/experiments/`), which chose the MLP target recipes.
+"Target-transform study" (`results/experiments/`), which chose the earlier MLP target recipes.
+`python experiments/channel_target.py` (~12 min) regenerates the study behind the present MLP target
+(`results/experiments/channel_target/`, report appendix "Channel target").
 
 ## Setup
 
@@ -59,17 +61,16 @@ src/config.py          config loader + model-card parser (nominal vth0, toxe, nd
 src/sampling.py        random draws per spec section 4
 src/spice.py           applies each sample to the hand-written netlists, runs ngspice, reads currents
 src/mlp_model.py       MLP transistor model (MLPFET class, saved by 03_train_mlp.py)
-src/target_transform.py  MLP target recipes: drain/source swap, log10|I| targets, sign outputs
+src/target_transform.py  MLP target recipes: drain/source swap, log10|I| targets, sign outputs, channel target (chan)
 src/xgb_model.py       XGBoost transistor model (features, XGBFET class, saved by 03_train_xgboost.py)
 src/poly_ridge.py      polynomial ridge transistor model (features, PolyRidgeFET class)
-src/gate_ml.py         gate leakage from the transistor models (topology read from netlists/gates/, KCL)
 src/circuit.py         test-circuit gate list (read from the netlist) and logic; writes data/circuit/gates.csv
 models/                PTM BSIM4 model cards
 reference/             spec, slides, TA example netlist
 netlists/transistor/   hand-written single-transistor netlists, one per case (deliverable 2)
 netlists/gates/        hand-written gate netlists: inv, nand2, nor2, and2, or2 (deliverable 2)
 netlists/circuit/      hand-written test-circuit netlist: parity8.cir, 28 NAND2, out = 1 for an odd number of 1s (deliverable 2)
-experiments/           optional studies (target_transforms.py, worst_rows.py) -> results/experiments/
+experiments/           optional studies (target_transforms.py, worst_rows.py, channel_target.py) -> results/experiments/
 data/ results/ figures/ saved_models/ report/   generated outputs
 ```
 
@@ -133,41 +134,37 @@ models on the test set (`results/test_results.csv`, `figures/test_pred_vs_spice_
 | PMOS ON | MLP | `saved_models/mlp/pmos_on.joblib` |
 | PMOS OFF | MLP | `saved_models/mlp/pmos_off.joblib` |
 
-The MLP target recipe of each case (`RECIPES` in `03_train_mlp.py`, flags in
-`src/target_transform.py`) comes from the target-transform study: NMOS ON and PMOS ON T3b,
-NMOS OFF T4 on T3a, PMOS OFF T5 on T3a.
+All four MLPs use one target recipe, `chan` (`RECIPES` in `03_train_mlp.py`, flags in
+`src/target_transform.py`, study in `experiments/channel_target.py`):
+- the network predicts the channel current Ich = (Id − Is)/2 as log10(|Ich| / (W·(1 − e^(−|Vds|/Vt)))),
+  plus log10(|Ig|/W) and log10(|Ib|/W), in the canonical drain/source frame;
+- Id = Ich + Icm and Is = −Ich + Icm with Icm = (Id + Is)/2 = −(Ig + Ib)/2 from Kirchhoff, so every
+  prediction satisfies KCL exactly;
+- Ich = 0 at Vds = 0 by construction, and swapping drain and source swaps Id and Is exactly.
+  This is the standard NN compact-model construction (Ids = factor(Vds) × exp(NN): Guo et al.,
+  *Micromachines* 14:1150, 2023, Eq. 3; Novkin et al., arXiv:2611.06127, Eq. 1).
+
+It replaces the per-case recipes of the target-transform study (T3b / T4 on T3a / T5 on T3a). Their
+OFF-case input log10(1 − e^(−|Vds|/Vt)) lies ~30 training standard deviations out at the
+|Vds| < 0.1 mV that transistors see inside gates, where those networks returned up to 1e265 A.
+Validation mean median error, old → new: NMOS ON 0.155 → 0.183 %, NMOS OFF 0.133 → 0.116 %,
+PMOS ON 0.152 → 0.164 %, PMOS OFF 8.13 → 8.03 %; gate leakage over all 3,600 rows (Σ V·I / VDD, no
+|Vds| floor): median 1.88 → 1.32 %, p95 27 → 8.4 %, max 2.7e72 → 26.5 %.
 
 Every saved model has `model.predict(df)`: `df` holds the dataset input columns
 (`vdd, temp, w, vd, vs, vg, vb, vth0, toxe, ndep, u0, xj`), the result is an (n, 4) array of
 Id, Ig, Is, Ib [A] (current into each terminal). Load with `joblib.load(...)` from the repo root.
-The gate-level phases use **XGBoost for PMOS OFF** (`saved_models/xgboost/pmos_off.joblib`) and the
-MLP for the other three cases (`MODELS` in `06_gate_ml.py`); see "Gate ML prediction" below for why.
-A script that uses MLP and XGBoost models together (e.g. `03_select_and_test.py`, `06_gate_ml.py`)
-must `import xgboost` first and call `torch.set_num_threads(1)`; otherwise their two OpenMP libraries
+A script that uses MLP and XGBoost models together (e.g. `03_select_and_test.py`) must `import xgboost` first and call `torch.set_num_threads(1)`; otherwise their two OpenMP libraries
 crash the process on macOS.
 
 ## Gate ML prediction (Phase 5)
 
-`06_gate_ml.py` (~20 s) predicts the leakage of every row of `data/gates/gate_spice.csv` with the
-transistor models and compares it with SPICE (`src/gate_ml.py` holds the method, reused by Phase 6).
-
-- **Topology** is parsed from `netlists/gates/<gate>.cir`; widths from `gates.widths_lmin`.
-- **Terminal voltages** come from the SPICE node voltages (`v_out`, `v_x`, `v_y`, `v_nd`, `v_nr`),
-  the inputs (exactly 0 or VDD), VDD and ground. Every transistor is run through the model of its case
-  (ON/OFF from its gate voltage).
-- **OFF transistors:** all four predicted currents. **ON transistors:** predicted Ig and Ib, but Id
-  and Is from Kirchhoff's current law. ON transistors in a static gate sit at |Vds| ≈ 1–30 µV, which
-  about 1 training sample in 10,000 covers. At a node not tied to a source the device currents sum
-  to 0, so the ON channel current = minus the sum of the currents into all other terminals on the
-  node, then Is = −Id − Ig − Ib. Series ON stacks (NOR2 y, NAND2 x) are solved node by node, always
-  at a node with one unknown ON channel; parallel ON devices share the node current by width.
-- **Leakage** = the Phase 4 definition: currents into the terminals on `vdd` + gate currents of
-  transistors driven by an input at VDD. `leak_direct` (no KCL, models' own ON Id/Is) is stored too.
-- **Why XGBoost for PMOS OFF:** with the MLP, an OFF PMOS whose drain and source both sit at VDD
-  (NAND2/AND2 inputs 01 and 10, |Vds| < 25 µV) occasionally gets |Is| of 0.01–100 A (5–14 of 200
-  corners per case), which destroys the mean error. XGBoost stays bounded there.
-- **Outputs:** `data/gates/gate_ml.csv` (per row: SPICE and ML leakage, node voltages, every
-  transistor's case and currents), `results/gate_results.csv` (deliverable 6: SPICE median, ML median,
-  bias, median and p95 error, mean accuracy = 100 % − mean |error|, and the same for `leak_direct`),
-  `figures/gate_parity.png` (deliverable 7).
+`06_gate_preds.py` predicts the leakage of every row of `data/gates/gate_spice.csv` with the four
+MLPs and compares it with SPICE.
+- Terminal voltages of every transistor from the SPICE node voltages (`v_out`, `v_x`, `v_y`, `v_nd`,
+  `v_nr`), the inputs (exactly 0 or VDD), VDD and ground; each transistor goes through the model of its
+  case.
+- Leakage = Σ V·I over all terminals of all transistors / VDD (total static power / VDD).
+- Outputs: `results/gate_results_table.csv` (deliverable 6) and `results/gate_parity_plot.png`
+  (deliverable 7).
 - Reads `gate_spice.csv` with `dtype={"inputs": str}` (otherwise "01" becomes 1).
