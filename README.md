@@ -27,13 +27,13 @@ Configured in [`config.yaml`](config.yaml).
 | # | Phase | Spec part | Scripts | Status |
 |---|---|---|---|---|
 | 0 | Setup and toolchain validation | n/a | (local only) | ✅ done |
-| 1 | Transistor dataset generation (4 × 10k samples) | A.1 | `01_gen_transistor_data.py` | ✅ done (4 × 10,000 samples) |
+| 1 | Transistor dataset generation | A.1 | `01_gen_transistor_data.py` | ✅ done (10,000 samples per case, 40,000 for PMOS OFF) |
 | 2 | Data checks: Kirchhoff + 3 trend plots | A.1 / deliverable 3 | `02_data_checks.py` | ✅ done |
-| 3 | ML models: 4 model types × 4 cases, select, test | A.2 / deliverables 4–5 | `03_make_split.py`, `03_train_mlp.py`, `03_train_xgboost.py`, `03_train_poly_ridge.py`, `03_train_rf.py`, `03_select_and_test.py` | ✅ done (MLP for all four cases) |
+| 3 | ML models: 4 model types × 4 cases, select, test | A.2 / deliverables 4–5 | `03_make_split.py`, `03_train_mlp.py`, `03_train_xgboost.py`, `03_train_poly_ridge.py`, `03_train_rf.py`, `03_select_and_test.py` | ✅ done (MLP for all four cases; PMOS OFF = mean of 5 networks) |
 | 4 | 200 shared corners + gate SPICE reference (18 cases) | B.3 | `04_gen_corners.py`, `05_gate_spice.py` | ✅ done (3,600 simulations) |
-| 5 | Gate-level ML prediction and comparison | B.4–5 / deliverables 6–7 | `06_gate_preds.py` | ✅ done (median error 1.4 %, mean accuracy 97.4 %) |
-| 6 | Test circuit: SPICE + hierarchical ML | C.6–8 / deliverable 8 | `07_circuit_spice.py`, `08_circuit_ml.py` | ✅ done (median error 1.36 %, mean accuracy 97.6 %) |
-| 7 | Figures, tables, report | deliverables 9–10 | `report/` (each script writes its own figures and tables) | ✅ report written |
+| 5 | Gate-level ML prediction and comparison | B.4–5 / deliverables 6–7 | `06_gate_preds.py` | ✅ done (median error 0.77 %, mean accuracy 98.9 %) |
+| 6 | Test circuit: SPICE + hierarchical ML | C.6–8 / deliverable 8 | `07_circuit_spice.py`, `08_circuit_ml.py` | ✅ done (median error 0.59 %, mean accuracy 99.1 %) |
+| 7 | Figures, tables, report | deliverables 9–10 | `09_report_figures.py`, `report/` (each script writes its own figures and tables) | ✅ report written (`report/dvd_project.pdf`) |
 
 Scripts run in numeric order. All randomness comes from seeds in `config.yaml`.
 
@@ -48,24 +48,26 @@ brew install ngspice libomp
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-python 01_gen_transistor_data.py   # ~2 min, data/transistor/
+python 01_gen_transistor_data.py   # ~4 min, data/transistor/ (70,000 simulations)
 python 02_data_checks.py           # results/kcl_check.csv, trend plots
 python 03_make_split.py            # 70/15/15 split per case
-python 03_train_mlp.py             # saved_models/mlp/
-python 03_train_xgboost.py
-python 03_train_poly_ridge.py      # ~12 min on 22 cores, ~9 min on 10
-python 03_train_rf.py
+python 03_train_mlp.py             # ~22 min, saved_models/mlp/ (PMOS OFF: 5 networks)
+python 03_train_xgboost.py         # ~3 min
+python 03_train_poly_ridge.py      # ~20 min on 10 cores
+python 03_train_rf.py              # ~5 min
 python 03_select_and_test.py       # comparison, choice, test results and plots
 python 04_gen_corners.py           # 200 shared PVT corners
 python 05_gate_spice.py            # ~11 s, 3,600 gate simulations
-python 06_gate_preds.py            # ~1 min, gate ML vs SPICE
+python 06_gate_preds.py            # ~1.5 min, gate ML vs SPICE
 python -m src.circuit              # data/circuit/gates.csv, the gate list read from parity8.cir
 python 07_circuit_spice.py         # ~5.5 min, 51,200 circuit simulations
 python 08_circuit_ml.py            # ~2 s, circuit ML vs SPICE
+python 09_report_figures.py        # ~3 s, report figures and per-vector circuit metrics
 python -m pytest tests/ -q         # 19 tests
 ```
 
-The report is `report/main.tex` (compile from `report/`; figures are read from `figures/` and `results/`).
+The report is `report/main.tex` (compiled: `report/dvd_project.pdf`). Its images are read from `figures/`
+(next to `main.tex` on Overleaf, `../figures/` when compiled from `report/`).
 
 ## Layout
 
@@ -94,7 +96,12 @@ data/ results/ figures/ saved_models/mlp/ report/   generated outputs (only the 
 Each case has a hand-written netlist in `netlists/transistor/<case>.cir`. Its `.param` lines
 hold one sample (`vdd, temp, w, vd, vs, vth0, toxe, ndep, u0, xj`). It runs on its own with
 `ngspice -b <case>.cir`. `01_gen_transistor_data.py` replaces those `.param` values with each
-of the 10,000 sampled rows in turn and runs ngspice once per row.
+sampled row in turn and runs ngspice once per row.
+
+**Dataset sizes:** 10,000 samples per case (`transistor_data.n_samples`), except PMOS OFF with 40,000
+(`n_samples_per_case`; the spec allows the count to be increased as needed). The PMOS OFF dataset was
+redrawn at 10k, 20k, 40k and 80k; the validation Id median error of its MLP was 3.17, 1.47, 0.91 and
+0.98 %, so 40k is the smallest size after which doubling stopped helping.
 
 ## Conventions and verified simulator behaviour
 
@@ -129,10 +136,12 @@ of the 10,000 sampled rows in turn and runs ngspice once per row.
   inputs held at VDD (`leak` in `data/gates/gate_spice.csv`); `i_vdd`, `i_a`, `i_b` are stored too.
 - **Simulator:** ngspice-47, like every other phase (printed by `01_gen_transistor_data.py`). A rerun with
   ngspice-44.2 (Windows) gave the same leakages to within 0.02 %.
+- **Outputs:** `data/gates/gate_spice.csv` and `results/gate_spice_summary.csv` (median / min / max SPICE
+  leakage per gate and input).
 
 ## Polynomial ridge model (Phase 3)
 
-`03_train_poly_ridge.py` (~12 min on 22 cores) saves `saved_models/poly_ridge/<case>.joblib`
+`03_train_poly_ridge.py` (~20 min on 10 cores) saves `saved_models/poly_ridge/<case>.joblib`
 (not committed: only the four chosen models are kept in the repo; rerun the script to recreate them).
 Load with `joblib.load(...)` from the repo root (the class lives in `src/poly_ridge.py`);
 `model.predict(df)` takes the dataset input columns and returns Id, Ig, Is, Ib [A] (n × 4).
@@ -153,7 +162,14 @@ models on the test set (`results/test_results.csv`, `figures/test_pred_vs_spice_
 
 The MLP target recipe of each case (`RECIPES` in `03_train_mlp.py`, flags in
 `src/target_transform.py`) comes from the target-transform study: NMOS ON and PMOS ON T3b,
-NMOS OFF T4 on T3a, PMOS OFF T5 on T3a.
+NMOS OFF T4 on T3a, PMOS OFF T5 on T3a. The PMOS OFF model is the mean of five networks trained on the
+same rows with seeds 42–46 (`ENSEMBLE_SEEDS` in `03_train_mlp.py`, `MLPEnsemble` in
+`src/mlp_model.py`), saved as one model with the same `predict()`; the other cases use one network.
+
+| Test set | NMOS ON | NMOS OFF | PMOS ON | PMOS OFF |
+|---|---|---|---|---|
+| Id median error | 0.13 % | 0.14 % | 0.13 % | 0.49 % |
+| mean of the 4 current medians | 0.15 % | 0.14 % | 0.14 % | 5.0 % |
 
 Every saved model has `model.predict(df)`: `df` holds the dataset input columns
 (`vdd, temp, w, vd, vs, vg, vb, vth0, toxe, ndep, u0, xj`), the result is an (n, 4) array of
@@ -173,7 +189,7 @@ four chosen (MLP) transistor models and compares it with SPICE.
   `v_nd`, `v_nr`), the inputs at exactly 0 or VDD, VDD and ground.
 - **OFF |Vds| floor** (not set by the spec): an OFF transistor with both ends on one rail (e.g. the OFF
   PMOS of NAND2 01/10, the OFF NMOS of NOR2 01/10) sits at 0.1–600 µV, where the OFF training data is
-  almost empty (24 of 10,000 PMOS OFF rows below 1 mV) and the model extrapolates to absurd currents
+  almost empty (95 of 40,000 PMOS OFF rows below 1 mV) and the model extrapolates to absurd currents
   (up to 1e265 A). Such a transistor is evaluated at |Vds| = 1 mV (`VDS_FLOOR`); the models are unchanged.
 - **ON transistors:** Ig and Ib from the ON model, but Id and Is from Kirchhoff's current law at the
   output and internal nodes. In a static gate an ON transistor only passes on what the OFF transistors
@@ -188,21 +204,21 @@ four chosen (MLP) transistor models and compares it with SPICE.
 
   | All 3,600 rows | KCL (main) | terminal sum, ON models' Id/Is | Σ V·I / VDD |
   |---|---|---|---|
-  | median error, SPICE node voltages | 1.40 % | 1.26 % | 1.69 % |
-  | mean accuracy, SPICE node voltages | 97.4 % | 97.6 % | 96.4 % |
-  | mean accuracy, ideal 0 / VDD outputs | 97.4 % | 56.4 % | 97.0 % |
+  | median error, SPICE node voltages | 0.77 % | 0.81 % | 1.00 % |
+  | mean accuracy, SPICE node voltages | 98.9 % | 98.8 % | 97.8 % |
+  | mean accuracy, ideal 0 / VDD outputs | 98.9 % | 57.5 % | 98.4 % |
 
-  The plain terminal sum is slightly better with the SPICE voltages but collapses with ideal ones:
+  The plain terminal sum is about as accurate with the SPICE voltages but collapses with ideal ones:
   its accuracy comes from the µV drops SPICE computed, not from the models. The KCL result does not
   depend on them.
 - **Outputs:** `data/gates/gate_ml.csv` (per row: SPICE node voltages and leakage, every ML variant,
   error), `results/gate_results_table.csv` (deliverable 6: SPICE median, ML median, bias in A and %,
   median and p95 error, mean accuracy = 100 % − mean |error|, median SPICE node voltages, comparison
   columns), `results/gate_parity_plot.png` (deliverable 7).
-- **Result:** all 3,600 rows median error 1.40 %, p95 9.4 %, mean accuracy 97.4 %. The least accurate
-  cases (INV 1, NAND2 11, AND2 00, NOR2 01, NOR2 10: median 2.2–4.0 %) are those whose leakage is
-  89–99 % set by the PMOS OFF model (the least accurate transistor model); cases with no PMOS OFF
-  contribution, where the NMOS OFF model carries the leakage, are at 0.24–1.07 %.
+- **Result:** all 3,600 rows median error 0.77 %, p95 3.6 %, mean accuracy 98.9 %. The four least
+  accurate cases (INV 1, NAND2 11, AND2 00, NOR2 01: median 1.08–1.26 %) are set 90–99 % by the PMOS
+  OFF model (the least accurate transistor model); NAND2 00, 01 and 10, carried by the NMOS OFF model,
+  are the most accurate (0.24–0.55 %).
 
 ## Test-circuit ML prediction (Phase 6)
 
@@ -217,13 +233,15 @@ compares it with the circuit SPICE reference of `07_circuit_spice.py`.
   measures the cost of the hierarchical assumptions (ideal 0/VDD inputs, no loading).
 - **Outputs:** `data/circuit/circuit_ml.csv` (per vector and corner), `results/circuit_results.csv`
   (deliverable 8), `results/circuit_error_breakdown.csv`, `results/circuit_error_drivers.csv`,
-  `figures/circuit_parity.png`.
+  `figures/circuit_parity.png`; `07_circuit_spice.py` also writes `results/circuit_spice_summary.csv`
+  and `09_report_figures.py` writes `results/circuit_results_per_vector.csv`.
 
 | Circuit vs SPICE (51,200 rows) | Bias | Median error | p95 | Mean accuracy | Max |
 |---|---|---|---|---|---|
-| ML sum of gate predictions | −0.91 % | 1.36 % | 7.6 % | 97.6 % | 22.3 % |
+| ML sum of gate predictions | −0.30 % | 0.59 % | 2.8 % | 99.1 % | 9.1 % |
 | Gate SPICE sum (no ML) | −0.04 % | 0.04 % | 0.21 % | 99.9 % | 0.51 % |
 
-The hierarchy itself costs only 0.04 %, so the circuit error is the gate error carried over, mostly
-that of the NAND2 gates at input 11 (two OFF PMOS); the corner, not the input vector, sets it.
+The hierarchy itself costs only 0.04 %, so the circuit error is the gate error carried over, the larger
+part from the NAND2 gates at input 11 (two OFF PMOS; 0.45 % on their own); the corner, not the input
+vector, sets it. The parity checker meets the spec's 99 % mean-accuracy target.
 
