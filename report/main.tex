@@ -2,19 +2,21 @@
 \usepackage[margin=2.2cm]{geometry}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{array}
 \usepackage{amsmath}
 \usepackage{siunitx}
 \usepackage{xcolor}
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage{enumitem}
+\usepackage{fontawesome5}
+\usepackage{needspace}
 \usepackage[hidelinks]{hyperref}
 
-\graphicspath{{../figures/}}
+\graphicspath{{figures/}{../figures/}}   % Overleaf: figures/ next to main.tex; repo: ../figures/
 \setlist{nosep, leftmargin=*}
 \captionsetup{font=small}
 
-% Marker for content that depends on phases not finished yet
 
 \title{ML-Driven PVT-Variation-Aware Leakage Estimation\\[2pt]
        \large Digital VLSI Design --- Course Project Report}
@@ -22,77 +24,66 @@
   Gaurav Reddy Yerreddi (2024112006) \and
   Neel Rajesh (2024112007) \and
   Monishram Selvaraj (2024112076) \and
-  Yogesh Krishna (2024102035)}
+  Yogesh Krishna (2024102035)\\[6pt]
+  \normalsize\faGithub\
+  \href{https://github.com/gauravv-13/dvd-ml-leakage-estimation}%
+       {\texttt{github.com/gauravv-13/dvd-ml-leakage-estimation}}}
 \date{}
 
 \begin{document}
 \maketitle
 
 \section*{Summary}
-Four MLP transistor models (NMOS/PMOS, ON/OFF), trained on 4 $\times$ 10{,}000 ngspice samples of the
-\texttt{32nm\_HP.pm} card, predict the four terminal currents with a test-set median error of 0.14--0.15\,\%
-for NMOS ON, NMOS OFF and PMOS ON and 8.4\,\% for PMOS OFF, whose small currents sit at the simulator
-noise floor. Built from these models, the leakage of the five gates (18 input cases $\times$ 200 PVT
-corners) has a median error of 1.40\,\% and a mean accuracy of 97.4\,\% against SPICE, and the 8-bit
-parity checker (28 NAND2, 256 input vectors $\times$ 200 corners) 1.36\,\% and 97.6\,\%, short of the
-99\,\% target. At both levels the largest errors come from leakage set by OFF PMOS transistors,
-mainly at low temperature and low PMOS $|v_{th0}|$.
+Four MLP transistor models (NMOS/PMOS, ON/OFF), trained on samples of the \texttt{32nm\_HP.pm} card
+simulated in ngspice (10{,}000 per case, 40{,}000 for PMOS OFF, whose model is the mean of five networks), predict the four
+terminal currents with a test-set median error of 0.14--0.15\,\% for NMOS ON, NMOS OFF and PMOS ON and
+5.0\,\% for PMOS OFF (0.49\,\% for its $I_d$). Built from these models, the leakage of the five gates
+(18 input cases $\times$ 200 PVT corners) has a median error of 0.77\,\% and a mean accuracy ($100\,\%$
+minus the mean $|$error$|$) of 98.9\,\% against SPICE, and the 8-bit parity checker (28 NAND2, 256 input
+vectors $\times$ 200 corners) 0.59\,\% and 99.1\,\%, above the 99\,\% target. At both levels the largest
+errors come from the drain current of OFF PMOS transistors, whose model is about three times less accurate
+than the NMOS OFF model well above the simulator noise floor (0.35 against 0.12\,\% for
+$|I_d| \ge \SI{1e-12}{A}$). With the OFF-PMOS-dominated gates replaced by their SPICE leakage, the parity
+checker would reach 99.6\,\% mean accuracy.
 
 \section{Setup}
 
-\begin{table}[!htbp]
-\centering
-\begin{minipage}[t]{0.52\linewidth}
-\centering
-\caption{Assignment and simulator.}
-\label{tab:setup}
-\begin{tabular}{ll}
-\toprule
-Item & Value \\
-\midrule
-Model file      & \texttt{32nm\_HP.pm} (PTM BSIM4) \\
-Channel length  & $L = L_{\min} = 32$\,nm \\
-Nominal VDD     & 0.9\,V \\
-Test circuit    & 8-bit parity checker \\
-Simulator       & ngspice-47 \\
-\bottomrule
+\noindent
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{}}
+\textbf{Model file}     & \texttt{32nm\_HP.pm} \\
+\textbf{Channel length} & $L = L_{\min} = 32$\,nm \\
+\textbf{Nominal VDD}    & 0.9\,V \\
+\textbf{Test circuit}   & 8-bit parity checker \\
+\textbf{Simulator}      & ngspice-47 \\
+\textbf{Software}       & Python 3.11, PyTorch 2.15, scikit-learn 1.9 (CPU) \\
 \end{tabular}
-\end{minipage}\hfill
-\begin{minipage}[t]{0.46\linewidth}
-\centering
-\caption{Nominal process parameters.}
-\label{tab:nominal}
-\begin{tabular}{lcc}
-\toprule
-Parameter & NMOS & PMOS \\
-\midrule
-$v_{th0}$ (V)                  & 0.49396 & $-0.49155$ \\
-$t_{oxe}$ (nm)                 & 1.15 & 1.20 \\
-$n_{dep}$ (cm$^{-3}$)          & $4.12\times10^{18}$ & $3.07\times10^{18}$ \\
-$u_0$ (m$^2$/V\,s)             & 0.050 & 0.014 \\
-$x_j$ (nm)                     & 10 & 10 \\
-\bottomrule
-\end{tabular}
-\end{minipage}
-\end{table}
 
-The nominal values in Table~\ref{tab:nominal} are read from the model card. Models were trained
-with Python 3.11, PyTorch 2.15 and scikit-learn 1.9 on CPU. All scripts read the assignment, sampling ranges and seeds from a single \texttt{config.yaml},
-and run in numeric order.
+\medskip
+\noindent All scripts read the assignment, sampling ranges and seeds from a single
+\texttt{config.yaml}, and run in numeric order.
 
 \section{Data generation}
 
 \subsection{Sampling}
 For each of the four cases (NMOS ON, NMOS OFF, PMOS ON, PMOS OFF), 10,000 samples were drawn
-independently (seed 2026, one random stream per case), following Section~4 of the project spec:
+independently (seed 2026, one random stream per case; 40,000 for PMOS OFF, see below), following Section~4
+of the project spec:
 \begin{itemize}
-  \item $V_{DD} \sim U(0.81, 0.99)$\,V, drawn first; then $V_d, V_s \sim U(0, V_{DD})$;
-  \item $W \sim U(1, 8)\cdot L_{\min}$; $T \sim U(-40, 125)$\,\si{\celsius};
-  \item $v_{th0}, t_{oxe}, n_{dep}, u_0, x_j$ each $= \text{nominal}\times U(0.9, 1.1)$, drawn separately for NMOS and PMOS;
+  \item $V_{DD} \sim U(0.81, 0.99)$\,V, drawn first and then $V_d, V_s \sim U(0, V_{DD})$;
+  \item $W \sim U(L_{\min}, 8L_{\min})$
+  \item $T \sim U(-40, 125)$\,\si{\celsius}
+  \item $v_{th0}, t_{oxe}, n_{dep}, u_0, x_j$ each $= \text{nominal value}\times U(0.9, 1.1)$, drawn separately for NMOS and PMOS
   \item $V_g, V_b$ fixed by the case (NMOS ON: $V_{DD}, 0$; NMOS OFF: $0, 0$; PMOS ON: $0, V_{DD}$; PMOS OFF: $V_{DD}, V_{DD}$).
 \end{itemize}
 Each dataset is stored as one CSV with columns
 \texttt{vdd, temp, w, vd, vs, vg, vb, vth0, toxe, ndep, u0, xj, id, ig, is, ib} (SI units).
+
+\textbf{PMOS OFF dataset size.} Part~A step~1 of the spec allows the number of samples to be increased as
+needed, preferably keeping the dataset as small as possible. The PMOS OFF dataset was redrawn (same
+distributions and random stream) at 10,000, 20,000, 40,000 and 80,000 samples, and its MLP (one network,
+seed 42) scored on each validation set: the $I_d$ median error was 3.17, 1.47, 0.91 and 0.98\,\%. 40,000 is
+the smallest size after which doubling stopped improving it, and is used (\texttt{config.yaml},
+\texttt{n\_samples\_per\_case}). The other three cases keep 10,000 samples.
 
 \subsection{Netlists}
 Each case has a hand-written single-transistor netlist (\texttt{netlists/transistor/<case>.cir})
@@ -100,36 +91,37 @@ that runs on its own with \texttt{ngspice -b}. Every terminal has its own DC vol
 each netlist contains the required
 \texttt{.options gmin=1e-18 abstol=1e-18 reltol=1e-6 vntol=1e-9}.
 The generation script replaces the \texttt{.param} values with each sample and runs ngspice
-once per sample (about 2 minutes for all 40,000 runs, 8 parallel processes). Further details:
+once per sample (about 4 minutes for all 70,000 runs, 8 parallel processes).
 \begin{itemize}
   \item \textbf{Process parameters} are applied with \texttt{altermod}, one line per parameter:
         a multi-parameter \texttt{altermod} line in ngspice silently applies only the first one.
         A sensitivity test confirmed that all five parameters reach the simulator.
   \item \textbf{Junction geometry:} $AD = AS = W L_{\mathrm{diff}}$, $PD = PS = 2(W + L_{\mathrm{diff}})$ with
-        $L_{\mathrm{diff}} = 2L_{\min}$ (required by the TA; the TA example netlist defines $L_{\mathrm{diff}}$). Only $I_b$ depends on it.
+        $L_{\mathrm{diff}} = 2L_{\min}$
   \item \textbf{Sign convention:} every stored current flows \emph{into} the device terminal
-        ($I = -\,\texttt{i(Vsource)}$). \texttt{set numdgt=12} is used so that printed currents
-        are not rounded to 6 digits.
+        ($I = -\,\texttt{i(Vsource)}$) and \texttt{set numdgt=12} keeps the printed currents from being
+        rounded to 6 digits.
 \end{itemize}
 
 \subsection{Train / validation / test split}
-Each dataset was split 70/15/15 (7,000 / 1,500 / 1,500 rows) with a fixed seed (42). The split
+Each dataset was split 70/15/15 (7,000 / 1,500 / 1,500 rows; PMOS OFF 28,000 / 6,000 / 6,000) with a
+fixed seed (42). The split
 is stored as a file per case and shared by all four model types, so every model is trained,
-tuned and tested on exactly the same rows. Tuning used the validation set only; the test set is
-used only for the chosen model.
+tuned and tested on exactly the same rows. Tuning used the validation set only, the test set is
+used only for the chosen models.
 
 \subsection{Data check}\label{sec:kcl}
 \paragraph{Kirchhoff check.} Table~\ref{tab:kcl} lists $|I_d + I_g + I_s + I_b|$ per case.
 The residual of about \SI{1e-16}{A} comes from the gate and substrate resistance networks
-enabled in the PTM card (\texttt{rgatemod=1}, \texttt{rbodymod=1}); with both switched off the
+enabled in the model card (\texttt{rgatemod=1}, \texttt{rbodymod=1}); with both switched off the
 residual drops to \SI{1e-31}{A}. The model card was used unmodified. The practical consequence
 is a simulator noise floor: currents below about \SI{1e-15}{A} are not reproducible between
-equivalent simulations. This affects mainly PMOS OFF $I_g$ (62\,\% of rows), PMOS OFF and NMOS OFF
+equivalent simulations. This affects mainly PMOS OFF $I_g$ (61\,\% of rows), PMOS OFF and NMOS OFF
 $I_b$ (54\,\%), and about 20\,\% of PMOS OFF $I_d/I_s$.
 
 \begin{table}[!htbp]
 \centering
-\caption{Kirchhoff check: $|I_d+I_g+I_s+I_b|$ over the 10,000 samples of each case.}
+\caption{Kirchhoff check: $|I_d+I_g+I_s+I_b|$ over the samples of each case (10,000; PMOS OFF 40,000).}
 \label{tab:kcl}
 \begin{tabular}{lcc}
 \toprule
@@ -138,7 +130,7 @@ Case & Median (A) & Max (A) \\
 NMOS ON  & \num{9.1e-17} & \num{1.2e-15} \\
 NMOS OFF & \num{2.0e-23} & \num{5.1e-20} \\
 PMOS ON  & \num{3.0e-17} & \num{6.0e-16} \\
-PMOS OFF & \num{7.7e-17} & \num{1.0e-15} \\
+PMOS OFF & \num{7.7e-17} & \num{1.1e-15} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -148,8 +140,12 @@ PMOS OFF & \num{7.7e-17} & \num{1.0e-15} \\
 (subthreshold slope and $V_{th}$ fall with temperature). Gate current falls steeply with $t_{oxe}$,
 as expected for direct tunnelling. OFF current also falls with $|v_{th0}|$, but this trend is
 weaker in the raw scatter: a $\pm10\,\%$ change in $v_{th0}$ moves $I_{\mathrm{off}}$ less than the spread
-caused by the other random inputs ($T$, $W$, $V_d$, $V_s$). PMOS ON gate current sits lower than
-a nominal sweep would suggest because the random $V_s$ often gives a small $|V_{gs}|$.
+caused by the other random inputs ($T$, $W$, $V_d$, $V_s$). The PMOS OFF data also show a narrow lower
+branch: samples with both $V_d$ and $V_s$ far below VDD (the higher of the two a median 0.41\,V below
+VDD, against 0.12\,V for the main band), where the channel is deeply off and $|I_d|$ is consistent with
+junction leakage, which rises with temperature and falls into the noise floor below about \SI{50}{\celsius}.
+PMOS ON gate current sits lower than a nominal sweep would suggest because the random $V_s$ often gives
+a small $|V_{gs}|$.
 
 \begin{figure}[!htbp]
 \centering
@@ -164,107 +160,61 @@ a nominal sweep would suggest because the random $V_s$ often gives a small $|V_{
 
 \subsection{Common preprocessing and metrics}
 All four model types are trained on the same training split and scored on the same validation
-split with the same metrics. Each model type chooses its own target scale (given with each model
-below), but every model's predictions are converted back to amperes before scoring.
+split with the same metrics; each chooses its own target scale, but every prediction is converted
+back to amperes before scoring.
 \begin{itemize}
-  \item \textbf{Scale:} currents span 6--13 decades and many change sign (about half of $I_d/I_s$
-        in the ON cases are negative), so $\log|I|$ alone would lose the sign; the models that work
-        on $\log|I|$ (MLP, polynomial ridge) obtain the sign separately. The common scale used for
-        $R^2$ is therefore $\operatorname{asinh}(I / \SI{1e-18}{A})$: above about \SI{1e-17}{A},
-        $\operatorname{asinh}(I/I_0) \approx \operatorname{sign}(I)\ln(2|I|/I_0)$, i.e.\ a
-        sign-preserving log.
   \item \textbf{Error:} relative error $|I_{\mathrm{pred}}-I_{\mathrm{SPICE}}|/|I_{\mathrm{SPICE}}|\times100\,\%$, reported as
         the median and 95th percentile per current, on all rows (noise-floor currents included).
-  \item \textbf{$R^2$} is computed on the $\operatorname{asinh}(I/\SI{1e-18}{A})$ scale. On a log-like
-        scale even mediocre fits score above 0.99, so models are compared on the median and p95 error
-        (the choice rule is in Section~\ref{sec:choice}); $R^2$ is a secondary check.
+  \item \textbf{$R^2$} is computed on the sign-preserving log scale $\operatorname{asinh}(I/\SI{1e-18}{A})$,
+        since currents span 6--13 decades and about half of $I_d/I_s$ in the ON cases are negative. On
+        such a scale even mediocre fits score above 0.99, so models are compared on the median and p95
+        error (Section~\ref{sec:choice}); $R^2$ is a secondary check.
 \end{itemize}
 
 \subsection{Model types}
-\paragraph{MLP (PyTorch).} One network per case predicts all four currents.
+\paragraph{MLP (PyTorch, chosen for all four cases).} One network per case predicts all four currents.
 \emph{Targets.} Drain and source are first put in a canonical order: NMOS rows with $V_d < V_s$
-and PMOS rows with $V_s < V_d$ have $V_d/V_s$ and $I_d/I_s$ swapped (gate and body unchanged), and the
-predictions are swapped back. The canonical $I_d$ then always flows in the channel direction (into
-the NMOS drain, out of the PMOS drain), so its sign is fixed. The network predicts
-$\log_{10}(|I|/W)$ of each current, standardised, and, for every current whose sign is not fixed, a
-sign output (logistic loss). The canonical $I_s$ keeps its sign output: in the OFF cases its sign is
-set by a near-cancellation of channel and junction leakage and is opposite to the channel direction
-in 59\,\% of NMOS OFF and 44\,\% of PMOS OFF samples. Per case (chosen on the validation set,
-Appendix~\ref{app:tt}): ON cases divide $I_d$ and $I_s$ also by the subthreshold drain factor,
-target $\log_{10}\bigl(|I| / (W(1-e^{-|V_{ds}|/V_T}))\bigr)$; the OFF cases add four inputs
+and PMOS rows with $V_s < V_d$ have $V_d/V_s$ and $I_d/I_s$ swapped, and the predictions are swapped
+back, so the canonical $I_d$ always flows in the channel direction and its sign is fixed. The network
+predicts $\log_{10}(|I|/W)$ of each current, standardised, plus a sign output (logistic loss) for every
+current whose sign is not fixed. The canonical $I_s$ keeps its sign output: in the OFF cases it is a
+near-cancellation of channel and junction leakage and opposite to the channel direction in 59\,\% of
+NMOS OFF and 44\,\% of PMOS OFF samples. Per case (chosen on the validation set, Appendix~\ref{app:tt}):
+the ON cases also divide $I_d$ and $I_s$ by the subthreshold drain factor, target
+$\log_{10}\bigl(|I| / (W(1-e^{-|V_{ds}|/V_T}))\bigr)$; the OFF cases add four inputs
 ($V_{ds}/V_T$, $V_{gs}/V_T$, $V_{bs}/V_T$, $\log_{10}(1-e^{-|V_{ds}|/V_T}+10^{-12})$, $V_T = kT/q$);
-NMOS OFF does not predict $I_s$ but takes $I_s = -(I_d + I_g + I_b)$; PMOS OFF trains on labels
-clipped to $|I| \ge \SI{1e-17}{A}$ (it is still scored against the raw SPICE values).
-\emph{Inputs:} the 12 CSV inputs plus $V_d-V_s$, $V_g-V_s$, $V_b-V_s$ and $1/T$ (T in K), computed after
+NMOS OFF takes $I_s = -(I_d + I_g + I_b)$ instead of predicting it; PMOS OFF trains on labels
+clipped to $|I| \ge \SI{1e-17}{A}$ (it is still scored against the raw SPICE values). The PMOS OFF model is
+the mean of the predicted currents of five such networks, trained on the same rows with seeds 42--46 and
+saved as one model.
+\emph{Inputs:} the 12 CSV inputs plus $V_d-V_s$, $V_g-V_s$, $V_b-V_s$ and $1/T$, computed after
 the swap and standardised on the training set.
-\emph{Network:} fully connected, SiLU activations, L1 loss on the magnitudes, AdamW, one-cycle
+\emph{Network:} fully connected, SiLU, L1 loss on the magnitudes, AdamW, one-cycle
 learning-rate schedule (peak $3\times10^{-3}$), batch 256, seed 42.
-ON cases: $128\times3$ layers, 6,000 epochs, no weight decay; OFF cases: $256\times4$ layers,
-3,000 epochs, weight decay $10^{-3}$.
-The network settings came from a two-round search on the validation set with the earlier target
-$\operatorname{asinh}(I/\SI{1e-18}{A})$ (Appendix~\ref{app:mlp}) and were kept unchanged:
-L1 loss clearly beat MSE and Huber, SiLU beat tanh and GELU, and a peak LR of 0.01 was worse.
-A first scikit-learn \texttt{MLPRegressor} underfit (6--7\,\% median error at best; it had no
-LR schedule and stopped early); the move to PyTorch with an LR schedule, L1 loss and per-output
-scaling brought the error below 1\,\%.
+ON cases: $128\times3$, 6,000 epochs, no weight decay; OFF cases: $256\times4$,
+3,000 epochs, weight decay $10^{-3}$. These settings come from a two-round validation search
+(Appendix~\ref{app:mlp}): L1 loss clearly beat MSE and Huber, SiLU beat tanh and GELU.
+A first scikit-learn \texttt{MLPRegressor} underfit (6--7\,\% median error).
 
-\paragraph{Polynomial ridge regression (scikit-learn).} A global polynomial of the raw inputs
-fails on $I_d$ and $I_s$ (about 100\,\% median error at degree 2--4): they change sign with
-$V_d-V_s$, a near-step on the asinh scale. The model therefore predicts three sign-consistent
-quantities, each with its own polynomial ridge regression on a log scale:
-$D/V_{ds}$ with $D = I_d - I_s$ (even in $V_{ds}$ and positive in all 40{,}000 samples), $I_g$ and
-$I_b$ (log of the magnitude, with the majority training sign; only PMOS OFF has mixed signs, at the
-noise floor). Then $I_d = (D - I_g - I_b)/2$ and $I_s = (-D - I_g - I_b)/2$, so the predicted
-currents satisfy Kirchhoff exactly.
-Features (20) are built in a symmetric frame: PMOS voltages are mirrored ($V \to V_{DD} - V$) and
-drain/source are sorted into the lower and higher terminal, so swapping them swaps $I_d$ and $I_s$
-exactly. Base features: $V_{DD}$, $V_{lo}$, $V_{hi}$, $1/T$, $\ln W$ and the five process parameters.
-Physics-based features: the subthreshold drain factor $\ln[(1-e^{-V_{ds}/V_T})/(V_{ds}/V_T)]$;
-EKV inversion charges $\ln q$, $q=\ln(1+e^{(V_G - V - |v_{th0}|)/2nV_T})$ at each channel end, and
-$\ln[(q_{lo}^2-q_{hi}^2)V_T/V_{ds}]$; a sharper softplus ($V_T$ scale) and $t_{oxe}(V_G - V)$ at each
-end for gate tunnelling; $E_g(T)/V_T$ and an optional junction reverse-bias factor for the diode
-currents. Pipeline: standardise, \texttt{PolynomialFeatures}(degree), standardise, \texttt{Ridge}($\alpha$).
-Degree $\in\{2,3,4\}$ (degree 4 has 10{,}625 terms; degree 5--6 overfitted in early tests),
-$\alpha \in \{10^{-7},\dots,1\}$ and junction feature on/off were chosen separately for each of the
-three parts by the validation RMSE of the log target; selecting on the median error instead picked
-degree-4, $\alpha=10^{-7}$ fits that predicted up to \SI{1e130}{A} at a few sparse validation points.
-The physics features were decisive: EKV charges took the ON-case $I_d$ median error from about 4\,\%
-to 0.7\,\%, the junction features took NMOS OFF $I_g$ from 1.1\,\% to 0.1\,\%. Chosen degrees are 3--4
-(2 for PMOS OFF $I_b$); all settings are in \texttt{results/poly\_ridge\_validation.csv}, the full
-sweep in \texttt{results/poly\_ridge\_sweep.csv}.
+\paragraph{Polynomial ridge regression (scikit-learn).} Polynomial ridge fits on a log scale of three
+sign-consistent quantities, $D/V_{ds}$ with $D = I_d - I_s$, $I_g$ and $I_b$, from which $I_d$ and $I_s$
+follow and satisfy Kirchhoff exactly. Its 20 features are built in a drain/source-symmetric frame and
+include physics-based terms (subthreshold drain factor, EKV inversion charges at each channel end,
+tunnelling and junction terms). Degree (2--4), $\alpha$ and the junction features were chosen per part by
+the validation RMSE of the log target. Details in Appendix~\ref{app:other}.
 
-\paragraph{Gradient-boosted trees (XGBoost).} Four boosters per case. Instead of $I_d$ and $I_s$
-directly, the model predicts $I_{ch} = (I_d - I_s)/2$ and $I_{cm} = (I_d + I_s)/2$, plus $I_g$ and $I_b$,
-each as $\operatorname{asinh}\bigl(I / (\SI{1e-18}{A}\cdot W/L_{\min})\bigr)$; $I_{ch}$ is multiplied by
-$\operatorname{sign}(V_d - V_s)$ so it does not jump where $V_d - V_s$ crosses 0. Then $I_d = I_{cm} + I_{ch}$ and
-$I_s = I_{cm} - I_{ch}$. $I_{cm}$ has its own booster instead of $-(I_g+I_b)/2$ because the PMOS OFF
-$I_g$ and $I_b$ labels carry the $\sim\SI{1e-16}{A}$ simulator noise.
-Features (31): the 10 inputs other than $V_d$ and $V_s$, and $1/T$; drain and source only through
-$V_{lo} = \min(V_d, V_s)$ and $V_{hi} = \max(V_d, V_s)$, since swapping them mirrors the device; the gap
-$V_{hi}-V_{lo}$ and $\ln(1 - e^{-(V_{hi}-V_{lo})/V_T})$; $V_g - V$ and $V_b - V$ at each end, also divided by
-$V_T$ (overdrive $(V_g - V - v_{th0})/V_T$) and by $t_{oxe}$ (oxide field, plus $(V_g - V_b)/t_{oxe}$);
-$\ln W$, $\ln t_{oxe}$, $\ln N_{dep}$, $\ln u_0$ and $v_{th0}/V_T$.
-Each booster starts from a least-squares line through the features (\texttt{base\_margin}) and the
-trees fit what it leaves over. Settings: 6{,}000 rounds, learning rate 0.015, depth 6, row and
-column subsampling 0.8, seed 42, 2 threads. NMOS ON/OFF and PMOS ON: squared-error loss,
-min.\ child weight 5, $\lambda = 5$. PMOS OFF: absolute-error (L1) loss, min.\ child weight 1,
-$\lambda = 1$, because squared error averages the mixed signs of its noisy $I_g$/$I_b$ labels towards 0
-while L1 follows the median. These settings were chosen on the validation set.
-XGBoost results depend slightly on the machine; with the version pinned (3.2.0) and a fixed thread
-count, repeated runs on one machine are identical. All numbers here come from one machine.
+\paragraph{Gradient-boosted trees (XGBoost).} Four boosters per case predict the channel and
+common-mode parts of $I_d/I_s$, $I_g$ and $I_b$ on the asinh scale (normalised by $W$), from 31
+symmetric, physics-based features, each starting from a least-squares baseline. 6{,}000 rounds,
+learning rate 0.015, depth 6, subsampling 0.8; PMOS OFF uses an absolute-error (L1) loss because
+squared error averages its noisy, mixed-sign $I_g$/$I_b$ labels towards zero. Details in
+Appendix~\ref{app:other}.
 
-\paragraph{Random forest (scikit-learn).} One multi-output \texttt{RandomForestRegressor} per case
-predicts all four currents as $\operatorname{asinh}(I/\SI{1e-18}{A})$. Inputs (11): $V_{DD}$, $T$, $W$,
-$V_{gs}$, $V_{ds}$, $V_{bs}$ and the five process parameters (the terminal-relative voltages replace
-the absolute $V_d, V_s, V_g, V_b$); trees need no standardisation. Hyperparameters were tuned one
-at a time, in this order, each keeping the value with the best mean validation $R^2$:
-\texttt{max\_features} $\in\{3, 4, 6, 0.5, 1.0\}$, \texttt{n\_estimators} $\in\{10, 50, 100, 200\}$,
-\texttt{max\_depth} $\in\{8, 12, 16, 20, \text{none}\}$, \texttt{min\_samples\_leaf} $\in\{1, 2, 5, 10\}$;
-seed 2026. Chosen: 200 trees in every case; depth 12 / none / 20 / 12, \texttt{max\_features}
-1.0 / 6 / 6 / 0.5 and \texttt{min\_samples\_leaf} 1 / 1 / 1 / 5 for NMOS ON / NMOS OFF / PMOS ON /
-PMOS OFF. Its median errors are 35--91\,\%: a forest predicts a piecewise-constant average of
-training labels, which cannot follow currents that change exponentially with voltage, and the
-$R^2$ used for tuning is high (above 0.9 for $I_d$, $I_s$) even at these errors.
+\paragraph{Random forest (scikit-learn).} One multi-output forest per case on the asinh scale, with
+11 inputs (terminal-relative voltages and the process parameters) and four hyperparameters tuned one at
+a time on validation $R^2$ (Appendix~\ref{app:other}). Its median errors are 40--90\,\%: a forest
+predicts a piecewise-constant average of training labels and cannot follow currents that change
+exponentially with voltage.
 
 \subsection{Model comparison (validation set)}
 Table~\ref{tab:cmp} gives the median error, p95 error and $R^2$ for each current, in the order
@@ -274,10 +224,10 @@ $I_d / I_g / I_s / I_b$.
 \centering
 \footnotesize
 \caption{Validation-set comparison (4 model types $\times$ 4 cases, 1{,}500 validation samples per
-case). Errors in \%; $R^2$ on the $\operatorname{asinh}(I/\SI{1e-18}{A})$ scale. Each cell:
+case, 6{,}000 for PMOS OFF). Errors in \%; $R^2$ on the $\operatorname{asinh}(I/\SI{1e-18}{A})$ scale. Each cell:
 $I_d / I_g / I_s / I_b$. Source: \texttt{results/model\_comparison.csv}.}
 \label{tab:cmp}
-\setlength{\tabcolsep}{3pt}
+\setlength{\tabcolsep}{2.5pt}
 \begin{tabular}{llccc}
 \toprule
 Model & Case & Median error (\%) & p95 error (\%) & $R^2$ \\
@@ -285,46 +235,48 @@ Model & Case & Median error (\%) & p95 error (\%) & $R^2$ \\
 MLP         & NMOS ON  & 0.12 / 0.16 / 0.12 / 0.22 & 0.9 / 1.6 / 0.9 / 1.2 & .9997 / 1.000 / .9996 / 1.000 \\
             & NMOS OFF & 0.13 / 0.06 / 0.13 / 0.21 & 1.6 / 0.4 / 1.4 / 1.3 & 1.000 / 1.000 / 1.000 / 1.000 \\
             & PMOS ON  & 0.13 / 0.12 / 0.14 / 0.23 & 0.7 / 0.5 / 0.7 / 3.2 & .9994 / 1.000 / 1.000 / .9999 \\
-            & PMOS OFF & 3.17 / 14.29 / 3.08 / 11.98 & 24.3 / 332.2 / 22.5 / 510.4 & .9907 / .2043 / .9982 / .7354 \\
+            & PMOS OFF & 0.50 / 13.83 / 0.51 / 5.44 & 4.4 / 310.5 / 4.4 / 360.8 & .9980 / .3331 / .9992 / .7978 \\
 \midrule
 XGBoost     & NMOS ON  & 3.38 / 0.94 / 3.38 / 5.67 & 17.1 / 5.9 / 17.1 / 19.0 & .9992 / .9997 / .9989 / .9989 \\
             & NMOS OFF & 2.93 / 0.36 / 3.07 / 1.63 & 32.8 / 1.5 / 36.6 / 17.9 & .9671 / .9999 / .9610 / .9998 \\
             & PMOS ON  & 3.43 / 2.06 / 3.43 / 6.04 & 15.1 / 9.0 / 15.3 / 22.0 & .9993 / .9997 / 1.000 / .9986 \\
-            & PMOS OFF & 6.58 / 16.72 / 6.22 / 13.53 & 43.8 / 167.4 / 42.5 / 175.6 & .9941 / .4846 / .9969 / .8495 \\
+            & PMOS OFF & 3.50 / 15.42 / 3.48 / 8.06 & 21.8 / 242.6 / 19.2 / 201.4 & .9968 / .4498 / .9973 / .8562 \\
 \midrule
 Poly. ridge & NMOS ON  & 0.32 / 2.00 / 0.32 / 5.13 & 1.8 / 14.2 / 1.8 / 18.7 & .9997 / .9988 / 1.000 / .9989 \\
             & NMOS OFF & 3.61 / 0.10 / 3.98 / 8.71 & 54.6 / 0.7 / 52.1 / 30.5 & .9540 / 1.000 / .9742 / .9994 \\
             & PMOS ON  & 0.20 / 0.18 / 0.20 / 6.81 & 0.8 / 1.0 / 0.8 / 21.6 & 1.000 / 1.000 / 1.000 / .9984 \\
-            & PMOS OFF & 14.75 / 22.15 / 14.96 / 29.90 & 139.0 / 267.7 / 140.4 / 449.7 & .9849 / .3993 / .9884 / .6963 \\
+            & PMOS OFF & 10.73 / 19.11 / 10.52 / 29.24 & 98.3 / 331.9 / 86.8 / 484.2 & .9844 / .3648 / .9878 / .7052 \\
 \midrule
-Random      & NMOS ON  & 44.30 / 73.76 / 44.19 / 53.61 & 286.5 / 710.3 / 281.1 / 365.6 & .9989 / .7372 / .9987 / .9069 \\
-forest      & NMOS OFF & 76.32 / 77.25 / 73.10 / 34.98 & 419.7 / 700.2 / 527.1 / 164.8 & .9366 / .4426 / .9530 / .9891 \\
-            & PMOS ON  & 48.01 / 67.45 / 48.05 / 55.04 & 302.7 / 567.8 / 311.4 / 368.9 & .9989 / .8753 / .9992 / .9072 \\
-            & PMOS OFF & 73.86 / 90.78 / 74.37 / 83.24 & 479.6 / 642.2 / 739.6 / 155.8 & .9419 / .1976 / .9603 / .8584 \\
+Random      & NMOS ON  & 44.34 / 73.63 / 44.14 / 53.35 & 283.0 / 712.6 / 281.9 / 366.9 & .9989 / .7378 / .9987 / .9069 \\
+forest      & NMOS OFF & 77.69 / 78.18 / 73.07 / 39.65 & 451.9 / 684.9 / 516.2 / 184.9 & .9351 / .4500 / .9527 / .9872 \\
+            & PMOS ON  & 46.95 / 67.11 / 46.93 / 54.64 & 336.1 / 553.1 / 339.0 / 376.0 & .9990 / .8743 / .9991 / .9070 \\
+            & PMOS OFF & 70.44 / 90.23 / 68.64 / 77.97 & 470.4 / 700.0 / 646.4 / 149.8 & .9613 / .1888 / .9721 / .8624 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+Polynomial ridge is the second most accurate model type in the ON cases: its $I_d$/$I_s$ median error
+(0.32\,\% NMOS ON, 0.20\,\% PMOS ON) is about ten times lower than XGBoost's. It is weak where a current is
+a sum of mechanisms with different exponential dependences (channel, gate tunnelling, junction leakage),
+most likely because the sharp bend this gives on a log scale is smoothed out by a polynomial of degree
+$\le 4$: its $I_b$ (5--9\,\%, 29\,\% for PMOS OFF) and OFF-case $I_d$/$I_s$ (3.6--10.7\,\%) are much worse,
+and it is not chosen for any case.
 
 \subsection{Final choice and test-set results}\label{sec:choice}
 \textbf{Rule.} For each case, the chosen model type is the one with the lowest validation median
 error averaged over $I_d, I_g, I_s, I_b$; the averaged p95 error is checked next to it. Only the
 validation set is used for the choice; the test set is used afterwards, on the chosen models only.
-The test set has been scored twice: first with the earlier MLP targets
-($\operatorname{asinh}(I/\SI{1e-18}{A})$, with XGBoost chosen for PMOS OFF; mean test medians 0.74,
-0.58, 0.70 and 11.42\,\%), then with the present models. The target study that led to the change
-(Appendix~\ref{app:tt}) used only the validation set, so the test rows did not influence it.
 
 \textbf{Choice} (validation, mean of the four medians / mean of the four p95):
 \begin{itemize}
   \item \textbf{NMOS ON, NMOS OFF, PMOS ON: MLP} (0.15 / 1.1\,\%, 0.13 / 1.2\,\%, 0.15 / 1.3\,\%). Its median
         error is 12--15 times lower than the next model's, and its p95 is also the lowest.
-  \item \textbf{PMOS OFF: MLP} (8.1 / 222\,\%, against 10.8 / 107\,\% for XGBoost). The p95 check goes the
-        other way here, and only because of $I_g$ and $I_b$: about 60\,\% of the PMOS OFF $I_g$ and half
-        of its $I_b$ values lie below \SI{1e-15}{A}, at the simulator noise floor
-        (Section~\ref{sec:kcl}), and their sign is close to random. On the samples with
-        $|I| \ge \SI{1e-15}{A}$ the MLP's median errors are 2.5 / 3.5 / 2.5 / 2.3\,\% against
-        5.7 / 5.7 / 5.4 / 3.3\,\% for XGBoost, and its $I_g$/$I_b$ p95 are 18.5 / 13.2\,\% against
-        27.3 / 14.4\,\%. The MLP is kept, following the rule.
+  \item \textbf{PMOS OFF: MLP} (5.1 / 170\,\%, against 7.6 / 121\,\% for XGBoost). On $I_d$ and $I_s$, the
+        currents that carry the gate leakage, the MLP is about seven times as accurate (median 0.50 / 0.51\,\%
+        against 3.50 / 3.48\,\%, p95 4.4 / 4.4\,\% against 22 / 19\,\%). The p95 check goes the other way only because
+        of $I_g$ and $I_b$, of which about 60\,\% and 50\,\% lie below \SI{1e-15}{A}, at the simulator
+        noise floor (Section~\ref{sec:kcl}), where their sign is close to random. The MLP is kept,
+        following the rule.
 \end{itemize}
 The four chosen models are \texttt{saved\_models/mlp/<case>.joblib} (\texttt{results/chosen\_models.csv});
 before the test run, each saved file is checked to reproduce its validation errors.
@@ -332,7 +284,8 @@ before the test run, each saved file is checked to reproduce its validation erro
 \begin{table}[!htbp]
 \centering
 \footnotesize
-\caption{Chosen models on the test set (1{,}500 samples per case, not used for training or choice).
+\caption{Chosen models on the test set (1{,}500 samples per case, 6{,}000 for PMOS OFF; not used for
+training or choice).
 Errors in \%; each cell $I_d / I_g / I_s / I_b$, then the mean of the four.
 Source: \texttt{results/test\_results.csv}.}
 \label{tab:test}
@@ -344,20 +297,17 @@ Case & Model & Median error (\%) & mean & p95 error (\%) & mean \\
 NMOS ON  & MLP & 0.13 / 0.14 / 0.13 / 0.21 & 0.15 & 0.8 / 1.4 / 0.8 / 1.2 & 1.1 \\
 NMOS OFF & MLP & 0.14 / 0.06 / 0.13 / 0.22 & 0.14 & 1.5 / 0.4 / 1.8 / 1.5 & 1.3 \\
 PMOS ON  & MLP & 0.13 / 0.11 / 0.13 / 0.21 & 0.14 & 0.7 / 0.6 / 0.7 / 4.1 & 1.5 \\
-PMOS OFF & MLP & 3.01 / 15.77 / 2.99 / 11.90 & 8.42 & 23.3 / 450.0 / 25.7 / 621.0 & 280.0 \\
+PMOS OFF & MLP & 0.49 / 13.14 / 0.50 / 5.94 & 5.02 & 4.1 / 301.6 / 4.6 / 331.4 & 160.4 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 The test errors are close to the validation errors (mean median 0.15 vs 0.15\,\%, 0.14 vs 0.13\,\%,
-0.14 vs 0.15\,\% and 8.4 vs 8.1\,\%), so the choices made on the validation set did not overfit it.
+0.14 vs 0.15\,\% and 5.0 vs 5.1\,\%), so the choices made on the validation set did not overfit it.
 Figure~\ref{fig:testplots} plots predicted against SPICE currents on the test set. In the ON cases
-no $I_d$/$I_s$ error exceeds 100\,\% and no prediction has the wrong sign (the earlier asinh targets
-had 43 such errors, 41 of them at $|V_d - V_s| < \SI{20}{mV}$); NMOS OFF has 3 such errors and 2 wrong
-signs. For PMOS OFF, 40 of the 46 $I_d$/$I_s$ errors above 100\,\% and 476 of the 478 predictions with
-the wrong sign (mostly $I_g$ and $I_b$) are at SPICE currents below about \SI{1.3e-15}{A}, i.e.\ at the
-noise floor; on the samples with $|I| \ge \SI{1e-15}{A}$ its test median errors are
-2.5 / 3.4 / 2.5 / 2.4\,\%.
+no prediction has the wrong sign or an error above 100\,\%. For PMOS OFF, 1{,}737 of the 1{,}739 wrong-sign
+predictions (mostly $I_g$ and $I_b$) are at SPICE currents below about \SI{1.3e-15}{A}, i.e.\ at the
+noise floor.
 
 \begin{figure}[!htbp]
 \centering
@@ -376,37 +326,37 @@ Each gate has a hand-written transistor-level netlist (\texttt{netlists/gates/<g
 transistor netlists' junction geometry and \texttt{.options} line. Widths are not set by the spec;
 we use standard static-CMOS sizing in units of $L_{\min}$: INV $n=1$, $p=2$; NAND2 $n=p=2$; NOR2 $n=1$,
 $p=4$; AND2 and OR2 are a NAND2 / NOR2 followed by an INV, simulated as one gate. Inputs are named
-as in the course slides, along each stack from the rail to the output: in the NAND2 (and AND2) NMOS stack $A$
-drives the transistor at ground and $B$ the one at the output (internal node $x$ between them); in the
-NOR2 (and OR2) PMOS stack $A$ drives the transistor at VDD and $B$ the one at the output (node $y$).
+along each stack from the rail to the output: in the NAND2 (and AND2) NMOS stack $A$ drives the
+transistor at ground and $B$ the one at the output (internal node $x$); in the NOR2 (and OR2) PMOS
+stack $A$ drives the transistor at VDD and $B$ the one at the output (node $y$).
 The 200 corners (\texttt{04\_gen\_corners.py}, seed 4242) each draw VDD, $T$, one set of NMOS and one
 set of PMOS process parameters from the distributions of Section~4 of the spec. \texttt{05\_gate\_spice.py}
-simulates all 18 gate/input cases at every corner (3{,}600 simulations, ngspice-47) with the inputs at
-exactly 0 or VDD and records the output and internal node voltages and every source current. The
-leakage is the static power divided by VDD: the current delivered by the VDD supply plus the currents
-delivered by the inputs held at VDD (inputs at 0\,V deliver no power). Every output settled within
-$7.2\times10^{-4}\,V_{DD}$ of its logic value.
+simulates all 18 gate/input cases at every corner (3{,}600 simulations) with the inputs at exactly 0 or
+VDD and records the output and internal node voltages and every source current. The leakage is the
+static power divided by VDD: the current delivered by the VDD supply plus the currents delivered by the
+inputs held at VDD (they supply the gate-tunnelling current of the transistors they drive). The process
+parameters are applied with one \texttt{altermod} line per parameter and device type, so all NMOS of a gate
+share one draw and all PMOS another. Every output settled within $7.2\times10^{-4}\,V_{DD}$ of its logic
+value. As a check, the results show the stack effect: with both series transistors off, the leakage is
+8--9 times lower than with one off (NAND2 00 against 01, NOR2 11 against 10; Table~\ref{tab:gates}),
+because the internal node settles away from its rail (median 0.11\,V above ground in NAND2 00, 0.13\,V
+below VDD in NOR2 11), giving the transistor nearer the output a reverse gate bias and a smaller $V_{ds}$.
 
 \subsection{ML prediction}
 Following step~4 of the spec, \texttt{06\_gate\_preds.py} takes the terminal voltages of every transistor
 from the SPICE node voltages of the same gate, inputs and corner (output, $x$, $y$ and the NAND2/NOR2
 output of AND2/OR2), the inputs, VDD and ground, and runs each transistor through the chosen model of its
-case (ON or OFF from the inputs). The leakage uses the SPICE definition: with every current flowing into
-its terminal, it is the sum of the currents into the terminals on VDD and on the inputs held at VDD.
-Currents at the output and internal nodes are not added, as each would count a current that is
-already counted where it enters the gate.
+case (ON or OFF from the inputs). With every current flowing into its terminal, the leakage is the sum of
+the currents into the terminals on VDD and on the inputs held at VDD, the same definition as in SPICE.
 
 \textbf{ON transistors via Kirchhoff's law.} In a static gate an ON transistor carries only what the
-OFF transistors leak, with a few \si{\micro V} across it. Its predicted channel current would simply turn
-that tiny drop, computed by SPICE, into a current. We therefore keep the ON transistors' predicted
-$I_g$ and $I_b$ but take their $I_d$ and $I_s$ from Kirchhoff's current law at the output and internal
-nodes (nodes with the fewest unknown channels first, so series ON stacks are solved node by node;
-parallel ON transistors share a node current by width). The leakage is then set by the OFF transistor
-models and the gate and body currents. Table~\ref{tab:gatemethods} compares this with two
-alternatives, also with the output-type nodes (output, NAND2/NOR2 output) set to exactly 0 or VDD
-instead of the SPICE values. Using the ON models' own $I_d$/$I_s$ is slightly more accurate with the
-SPICE voltages but collapses with ideal ones, i.e.\ its accuracy comes from the \si{\micro V} drops
-SPICE computed rather than from the models; the Kirchhoff version is the same in both cases.
+OFF transistors leak, with a few \si{\micro V} across it, so its predicted channel current would only
+turn that tiny SPICE voltage drop into a current. We keep the ON transistors' predicted $I_g$ and $I_b$
+but take their $I_d$ and $I_s$ from Kirchhoff's current law at the output and internal nodes. The leakage
+is then set by the OFF transistor models and the gate and body currents. Table~\ref{tab:gatemethods}
+compares this with two alternatives, also with the output-type nodes set to exactly 0 or VDD: the ON
+models' own $I_d$/$I_s$ are about as accurate with the SPICE voltages but collapse with ideal ones,
+i.e.\ their accuracy comes from the \si{\micro V} drops computed by SPICE, not from the models.
 
 \begin{table}[!htbp]
 \centering
@@ -418,30 +368,27 @@ SPICE computed rather than from the models; the Kirchhoff version is the same in
  & Kirchhoff for ON & ON models' & \\
  & (used) & $I_d$/$I_s$ & $\sum V I / V_{DD}$ \\
 \midrule
-Median error, SPICE node voltages & 1.40\,\% & 1.26\,\% & 1.69\,\% \\
-Mean accuracy, SPICE node voltages & 97.4\,\% & 97.6\,\% & 96.4\,\% \\
-Mean accuracy, ideal 0/VDD outputs & 97.4\,\% & 56.4\,\% & 97.0\,\% \\
+Median error, SPICE node voltages & 0.77\,\% & 0.81\,\% & 1.00\,\% \\
+Mean accuracy, SPICE node voltages & 98.9\,\% & 98.8\,\% & 97.8\,\% \\
+Mean accuracy, ideal 0/VDD outputs & 98.9\,\% & 57.5\,\% & 98.4\,\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{OFF transistors at $|V_{ds}| \approx 0$.} One choice is not set by the spec. An OFF transistor with
-both ends on the same rail (the OFF PMOS of NAND2 01/10, the OFF NMOS of NOR2 01/10 and the
-corresponding AND2/OR2 cases) sits at $|V_{ds}| \approx 0.1$--\SI{600}{\micro V}. The OFF training data
-barely covers this (24 of 10{,}000 PMOS OFF samples below 1\,mV), and there the networks extrapolate to
-unphysical currents (up to \SI{e265}{A}). Such a transistor is therefore evaluated at $|V_{ds}| = 1$\,mV,
-a round value where the training data starts to be populated (only 0.24\,\% of the PMOS OFF samples lie below it; 1{,}600 of the 3{,}600 rows contain
-one such transistor). Physically its channel current there is a small fraction of its full-$V_{ds}$
-subthreshold current, and in the leakage sum it only adds to currents that are much larger. The
-transistor models themselves are unchanged. As a sensitivity check only (the gate SPICE results are
-not used to set it), a smaller floor does not remove the problem: at 0.1\,mV every case median is the
-same, but single NAND2/AND2 corners still reach 105\,\% error.
+\textbf{OFF transistors at $|V_{ds}| \approx 0$.} An OFF transistor with both ends on the same rail (the
+OFF PMOS of NAND2 01/10, the OFF NMOS of NOR2 01/10 and the corresponding AND2/OR2 cases; 1{,}600 of the
+3{,}600 rows) sits at $|V_{ds}| \approx 0.1$--\SI{600}{\micro V}. The OFF training data barely covers this
+(95 of 40{,}000 PMOS OFF samples below 1\,mV), and there the networks extrapolate to unphysical currents
+(up to \SI{e265}{A}). Such a transistor is therefore evaluated at $|V_{ds}| = 1$\,mV, where the training
+data starts to be populated. The choice is set by the training-data coverage, not by the gate SPICE
+results. Its effect is small: NAND2 01 and 10, where the floored transistor is an OFF PMOS, are among the
+most accurate cases (median 0.31 and 0.55\,\%). We also tried a 0.1 mV floor, 1 mV was marginally better (by at most 0.02 percentage points in any case median), and the largest error in these 1,600 rows is 9.8\% with either.
 
 \subsection{Results}
 Table~\ref{tab:gates} lists the 18 cases and Fig.~\ref{fig:gateparity} the parity plot. Over all 3{,}600
-simulations the median error is 1.40\,\% (p95 9.4\,\%, maximum 29\,\%), the median bias $-0.6$\,\% and
-the mean accuracy ($100\,\% - $ mean $|$error$|$) 97.4\,\%, against the target of 99\,\%. Per gate the
-median error is 0.5--2.1\,\% and the mean accuracy 96.6--98.3\,\%.
+simulations the median error is 0.77\,\% (p95 3.6\,\%, maximum 10.5\,\%), the median bias $-0.2$\,\% and
+the mean accuracy 98.9\,\%, against the target of 99\,\%. Per gate the median error is 0.4--1.2\,\% and
+the mean accuracy 98.5--99.2\,\%.
 
 \begin{table}[!htbp]
 \centering
@@ -456,89 +403,83 @@ error: $|$ML$-$SPICE$|$/SPICE; mean accuracy: $100\,\% - $ mean error.}
 Gate & $AB$ & SPICE & ML & (\%) & median & p95 & (\%) \\
 \midrule
 INV & 0 & 1.603 & 1.597 & $-$0.34 & 1.07 & 4.2 & 98.6 \\
-INV & 1 & 1.424 & 1.348 & $-$3.04 & 4.04 & 14.9 & 94.5 \\
+INV & 1 & 1.424 & 1.422 & $-$1.15 & 1.26 & 3.9 & 98.4 \\
 \midrule
 NAND2 & 00 & 0.132 & 0.131 & $-$0.03 & 0.24 & 0.8 & 99.7 \\
 NAND2 & 01 & 1.231 & 1.230 & +0.17 & 0.31 & 1.0 & 99.6 \\
 NAND2 & 10 & 3.988 & 3.968 & +0.17 & 0.55 & 3.3 & 99.1 \\
-NAND2 & 11 & 2.935 & 2.770 & $-$2.85 & 3.92 & 14.0 & 94.8 \\
+NAND2 & 11 & 2.935 & 2.938 & $-$1.06 & 1.24 & 3.7 & 98.5 \\
 \midrule
 NOR2 & 00 & 3.206 & 3.200 & $-$0.33 & 1.06 & 4.2 & 98.6 \\
-NOR2 & 01 & 3.108 & 2.934 & $-$2.83 & 3.37 & 12.1 & 95.3 \\
-NOR2 & 10 & 0.670 & 0.658 & +0.81 & 2.24 & 6.7 & 97.3 \\
-NOR2 & 11 & 0.082 & 0.083 & +0.24 & 1.27 & 6.1 & 98.1 \\
+NOR2 & 01 & 3.108 & 3.137 & $-$0.39 & 1.08 & 3.4 & 98.6 \\
+NOR2 & 10 & 0.670 & 0.671 & +0.69 & 0.72 & 2.0 & 99.1 \\
+NOR2 & 11 & 0.082 & 0.083 & +0.07 & 0.51 & 3.5 & 99.0 \\
 \midrule
-AND2 & 00 & 1.728 & 1.615 & $-$2.61 & 3.47 & 13.2 & 95.2 \\
-AND2 & 01 & 3.312 & 3.243 & $-$1.40 & 1.92 & 9.2 & 97.0 \\
-AND2 & 10 & 6.451 & 6.402 & $-$0.63 & 1.20 & 6.3 & 98.0 \\
-AND2 & 11 & 5.262 & 5.104 & $-$2.17 & 2.62 & 10.5 & 96.4 \\
+AND2 & 00 & 1.728 & 1.701 & $-$0.96 & 1.10 & 3.6 & 98.6 \\
+AND2 & 01 & 3.312 & 3.307 & $-$0.50 & 0.64 & 2.5 & 99.1 \\
+AND2 & 10 & 6.451 & 6.421 & $-$0.17 & 0.63 & 2.9 & 99.0 \\
+AND2 & 11 & 5.262 & 5.247 & $-$0.84 & 1.01 & 3.7 & 98.6 \\
 \midrule
-OR2 & 00 & 5.489 & 5.435 & $-$1.66 & 1.83 & 7.4 & 97.4 \\
-OR2 & 01 & 5.587 & 5.513 & $-$1.99 & 2.36 & 9.5 & 96.7 \\
-OR2 & 10 & 2.822 & 2.741 & $-$0.31 & 1.14 & 3.9 & 98.5 \\
-OR2 & 11 & 1.659 & 1.648 & $-$0.29 & 1.00 & 4.0 & 98.7 \\
+OR2 & 00 & 5.489 & 5.454 & $-$0.71 & 0.97 & 4.1 & 98.6 \\
+OR2 & 01 & 5.587 & 5.572 & $-$0.41 & 0.96 & 3.7 & 98.7 \\
+OR2 & 10 & 2.822 & 2.885 & $-$0.00 & 0.80 & 3.5 & 98.9 \\
+OR2 & 11 & 1.659 & 1.647 & $-$0.27 & 1.01 & 3.9 & 98.7 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.6\linewidth]{../results/gate_parity_plot.png}
-\caption{ML vs SPICE gate leakage, all 18 cases $\times$ 200 corners, log axes.}
+\includegraphics[width=0.6\linewidth]{gate_parity_by_case.png}
+\caption{ML vs SPICE gate leakage, all 18 cases $\times$ 200 corners, log axes; red: the five cases
+whose leakage is set by OFF PMOS transistors.}
 \label{fig:gateparity}
 \end{figure}
 
-The accuracy of a case follows how much of its leakage is set by the PMOS OFF model, the least
-accurate transistor model (Section~\ref{sec:choice}). In the five least accurate cases, INV 1, NAND2 11,
-AND2 00, NOR2 01 and NOR2 10 (median error 2.2--4.0\,\%, the first four biased low by 2.6--3.0\,\%),
-89--99\,\% of the leakage is set by OFF PMOS transistors (measured as the change of the predicted leakage
-when the PMOS OFF currents are scaled). In the cases with no PMOS OFF contribution, where the NMOS OFF
-model carries the leakage, the median error is 0.24--1.07\,\%; NAND2 00, 01 and 10 are the most
-accurate cases (0.24--0.55\,\%).
+\textbf{Most and least accurate.} The accuracy of a case follows how much of its leakage is set by the
+PMOS OFF model. In the five cases INV 1, NAND2 11, AND2 00, NOR2 01 and NOR2 10, 90--99\,\% of the leakage
+is OFF-PMOS current (measured as the change of the predicted leakage when the PMOS OFF currents are
+scaled); together they have a median error of 1.07\,\% and a mean accuracy of 98.7\,\%, and the first four
+are the four least accurate cases (1.08--1.26\,\%), biased low by 0.4--1.1\,\%. The other 13 cases have a
+median error of 0.67\,\% and a mean accuracy of 98.9\,\%; NAND2 00, 01 and 10, carried by the NMOS OFF
+model, are the most accurate (0.24--0.55\,\%).
 
 \section{Test-circuit results}
-The 8-bit parity checker (\texttt{netlists/circuit/parity8.cir}) is built only from a gate that
-has ML models: 28 NAND2, 112 transistors. Each XOR2 is four NAND2 gates,
+\paragraph{Circuit.} The 8-bit parity checker (\texttt{netlists/circuit/parity8.cir}) is built only from
+a gate that has ML models: 28 NAND2, 112 transistors. Each XOR2 is four NAND2 gates,
 $a \oplus b = \overline{\overline{a\,n_1}\cdot\overline{b\,n_1}}$ with $n_1 = \overline{ab}$; seven XOR2
-form a balanced tree over the inputs $in_0 \dots in_7$ (three levels), giving the output
-$out = in_0 \oplus \dots \oplus in_7$ (1 for an odd number of 1s). Transistor widths, junction
-geometry and pin order are those of the NAND2 gate netlist ($n = p = 2L_{\min}$), and the
-spec's \texttt{.options} line is included. The gate list used by the hierarchical ML prediction
-(\texttt{data/circuit/gates.csv}) is read from the netlist itself, so the two cannot differ.
-At the nominal corner, every one of the 28 gate outputs settles within $3\times10^{-5}\,V_{DD}$
-of its logic value for all 256 input vectors.
-SPICE reference (\texttt{07\_circuit\_spice.py}): all 256 input vectors at the same 200 corners as
-Part~B (51{,}200 simulations), with the leakage defined as for the gates (current delivered by the
-VDD supply plus the currents delivered by the inputs held at VDD). Every output was within
-$8\times10^{-4}\,V_{DD}$ of its logic value and every leakage positive; the median leakage per vector
-ranges from \SI{48}{nA} to \SI{97}{nA}. As a check of the composition itself, summing the gate-level
-SPICE leakages of Part~B over the 28 gates reproduces the circuit SPICE leakage with a median error
-of 0.04\,\% (p95 0.21\,\%, max 0.51\,\%): ignoring the loading between gates costs almost nothing here,
-so the hierarchical ML accuracy is set by the gate-level predictions.
-Hierarchical ML prediction (\texttt{08\_circuit\_ml.py}): for each input vector the logic value of
-every net follows from the gate list, which gives the input combination of each of the 28 NAND2 in
-the pin order of the gate netlist. Every circuit corner is a Part~B corner, so the ML leakage of a
-gate is the Phase~5 prediction for that gate, input combination and corner, and the circuit leakage
-is the sum over the 28 gates (spec step 7). Table~\ref{tab:circuit} and Fig.~\ref{fig:circuitparity}
-compare it with SPICE.
+form a balanced three-level tree, giving $out = in_0 \oplus \dots \oplus in_7$. Transistor widths,
+junction geometry and pin order are those of the NAND2 gate netlist, with the spec's \texttt{.options}
+line. The gate list used by the ML prediction (\texttt{data/circuit/gates.csv}) is read from the netlist
+itself, so the two cannot differ.
+
+\paragraph{SPICE reference.} \texttt{07\_circuit\_spice.py} simulates all 256 input vectors at the same
+200 corners as the gates (51{,}200 simulations), with the leakage defined as for the gates. Every output
+was within $8\times10^{-4}\,V_{DD}$ of its logic value and every leakage positive; the median leakage per
+vector ranges from \SI{48}{nA} to \SI{97}{nA}.
+
+\paragraph{Hierarchical ML prediction.} \texttt{08\_circuit\_ml.py} derives, for each input vector, the
+logic value of every net and so the input combination of each NAND2. Every circuit corner is a gate
+corner, so the ML leakage of a gate is its gate-level prediction for that input combination and corner,
+and the circuit leakage is the sum over the 28 gates (spec step 7). The same sum of the gate SPICE
+leakages isolates the hierarchical assumptions (inputs at exactly 0 or VDD, no loading).
 
 \begin{table}[!htbp]
 \centering
-\caption{Test-circuit leakage vs circuit SPICE, 256 input vectors $\times$ 200 corners, with the same
-metrics as Table~\ref{tab:gates}. The gate SPICE sum is the same composition with the Part~B SPICE
-leakages instead of the ML ones; the Part~B rows are the gate-level reference, for the NAND2 cases
-the circuit is built from and for all 18 gate cases.}
+\caption{Test-circuit leakage vs circuit SPICE, 256 input vectors $\times$ 200 corners, with the metrics
+of Table~\ref{tab:gates}. The gate SPICE sum is the same composition with the gate SPICE leakages; the
+gate rows are the gate-level reference.}
 \label{tab:circuit}
 \resizebox{\linewidth}{!}{%
 \begin{tabular}{lrrrrrrrr}
 \toprule
 Estimate & Rows & SPICE med. (nA) & Est.\ med. (nA) & Bias (\%) & Med.\ err.\ (\%) & p95 (\%) & Mean acc.\ (\%) & Max (\%) \\
 \midrule
-ML sum of gate predictions & 51{,}200 & 79.92 & 78.47 & $-$0.91 & 1.36 & 7.6 & 97.6 & 22.3 \\
+ML sum of gate predictions & 51{,}200 & 79.92 & 79.96 & $-$0.30 & 0.59 & 2.8 & 99.1 & 9.1 \\
 Gate SPICE sum (no ML)     & 51{,}200 & 79.92 & 79.91 & $-$0.04 & 0.04 & 0.21 & 99.9 & 0.51 \\
 \midrule
-Part~B, NAND2 cases        & 800      & 1.429 & 1.426 & $-$0.03 & 0.48 & 8.9 & 98.3 & 28.5 \\
-Part~B, all gates          & 3{,}600  & 2.128 & 2.097 & $-$0.56 & 1.40 & 9.4 & 97.4 & 29.4 \\
+Gates, NAND2 cases         & 800      & 1.429 & 1.430 & $-$0.04 & 0.44 & 3.1 & 99.2 & 10.3 \\
+Gates, all 18 cases        & 3{,}600  & 2.128 & 2.119 & $-$0.23 & 0.77 & 3.6 & 98.9 & 10.5 \\
 \bottomrule
 \end{tabular}}
 \end{table}
@@ -550,130 +491,106 @@ Part~B, all gates          & 3{,}600  & 2.128 & 2.097 & $-$0.56 & 1.40 & 9.4 & 9
 \label{fig:circuitparity}
 \end{figure}
 
-The circuit is less accurate than the median NAND2 gate case and about as accurate as all gates:
-median error 1.36\,\% against 0.48\,\% for the Part~B NAND2 cases and 1.40\,\% for all 18 gate cases,
-p95 7.6 against 8.9 and 9.4\,\%, and mean accuracy 97.6\,\% against 98.3 and 97.4\,\%, still short of
-the 99\,\% target. The spec expects the circuit to be somewhat less accurate than the gates because of
-the hierarchical assumptions; for this circuit they cost only 0.04\,\% (gate SPICE sum), so the circuit
-error is the gate-level ML error carried over. The NAND2 median hides that the four input combinations
-differ: 00, 01 and 10 are accurate (median 0.24--0.55\,\%, bias near 0), while 11 (two OFF PMOS) has a
-median error of 3.9\,\% and a bias of $-2.85\,\%$ (Table~\ref{tab:gates}). Every vector has 7 to 11 of
-the 28 gates at 11, and they carry a median 39\,\% of the circuit leakage, so the circuit error is set
-mostly by combination 11; this is also where the circuit bias ($-0.91\,\%$, against $-0.03\,\%$ for the
-NAND2 cases) comes from. At each vector and corner the circuit error is the leakage-weighted average of
-the gate errors (each input combination weighted by its share of the gate SPICE sum), plus the
-composition error of at most 0.51\,\%. Gates at the same input combination and corner have exactly the
-same error, so it does not average out over more gates. Keeping only the errors of the gates at 11 (the
-other gates at their SPICE leakage) gives a median circuit error of 1.36\,\% and a bias of
-$-1.09\,\%$; keeping only those of 00, 01 and 10 gives 0.24\,\% and $+0.01\,\%$. The circuit error is
-therefore about that of the gates at 11 alone: the small 00/01/10 errors partly offset it (adding up
-every gate's $|$error$|$ without any offsetting would give 1.94\,\%), but do not reduce it below the
-11-only value. As a weighted average, the circuit error cannot exceed the worst gate error at its
-corner: at corner 152 the gates at 11 carry 78\,\% of the leakage of vector~0, and their $-28.5\,\%$
-becomes the circuit maximum of $-22.3\,\%$.
+\paragraph{Comparison with the gates.} Table~\ref{tab:circuit} and Fig.~\ref{fig:circuitparity} give the
+result. The hierarchical assumptions cost only 0.04\,\% median error (gate SPICE sum), so the circuit
+error is the gate-level ML error carried over. The circuit (0.59\,\%) is less accurate than the pooled
+NAND2 cases (0.44\,\%) because it weights the input combinations by leakage: every vector has 7 to 11
+gates at 11 (two OFF PMOS, median error 1.24\,\%, bias $-1.06\,\%$), and they carry a median 39\,\% of the
+circuit leakage. At each vector and corner the circuit error is the leakage-weighted average of the gate
+errors plus the composition error ($\le 0.51\,\%$). Gates at the same input combination and corner have
+the same error, so it does not average out over more gates. Keeping only the errors of the gates at 11
+(all other gates at their SPICE leakage) gives 0.45\,\% median and $-0.36\,\%$ bias; keeping only those of
+00, 01 and 10 gives 0.24\,\% and $+0.01\,\%$, against 0.59\,\% and $-0.30\,\%$ for the full result. The
+OFF-PMOS gates therefore carry the larger part of the circuit error. The maximum, $-9.1\,\%$ at corner 56,
+is the NAND2 11 error there ($-10.3\,\%$) weighted by the 88\,\% leakage share of those gates.
 
 \section{Error analysis}\label{sec:errors}
-At the transistor level (MLP, validation set):
-\begin{itemize}
-  \item \textbf{PMOS OFF is the hardest case} (8.1\,\% mean median error vs 0.13--0.15\,\% for the
-        others), driven by $I_g$ and $I_b$ (14.3 and 12.0\,\% median). Most of these currents are below
-        \SI{1e-15}{A}, i.e.\ at the simulator noise floor found in the Kirchhoff check, so the targets
-        themselves are not reproducible and their sign is close to random (150--170 $I_g$ and 260--300
-        $I_b$ wrong signs in 1{,}500 validation samples for every target tried; 158 and 303 for the chosen model). On the samples above
-        \SI{1e-15}{A} the four median errors are 2.3--3.5\,\%; the error is limited by the data, not the model.
-  \item \textbf{Small $|V_d - V_s|$ in the ON cases.} With the earlier asinh targets most of the
-        largest $I_d$/$I_s$ errors were at $|V_d - V_s| < \SI{20}{mV}$, where the channel current passes
-        through zero and changes sign (median error 7.6\,\% there). Predicting the sign separately,
-        the drain/source swap and the saturation-factor target bring this to 0.4--0.5\,\% for the
-        chosen models (Appendix~\ref{app:tt}).
-  \item \textbf{The lower-voltage terminal in the OFF cases.} The current at the terminal nearer
-        ground (canonical $I_s$) is a near-cancellation of channel and junction leakage; where it is
-        below 1\,\% of $|I_d|$ (15 NMOS OFF and 4 PMOS OFF validation samples) its error stays large
-        (15\,\% and about 4{,}000\,\% median for the chosen models), also when it is computed from Kirchhoff.
-  \item $I_g$ and $I_b$ in NMOS ON, NMOS OFF and PMOS ON are accurate (median $\le 0.25\,\%$), as they
-        vary smoothly with the inputs.
-\end{itemize}
-At the gate level (Section~\ref{sec:gates}):
-\begin{itemize}
-  \item \textbf{Worst gates and inputs} are those whose leakage is set by OFF PMOS transistors (INV 1,
-        NAND2 11, AND2 00, NOR2 01, NOR2 10: 89--99\,\%, median error 2.2--4.0\,\%), inheriting the
-        PMOS OFF model error; where the NMOS OFF model carries the leakage the error is 0.24--1.07\,\%.
-  \item \textbf{Temperature} matters most for the tails: the p95 error is 14.5\,\% for
-        $T \le \SI{0}{\celsius}$ and 5.9\,\% above \SI{80}{\celsius} (median 1.7 vs 1.1\,\%), and 97\,\% of
-        the worst 1\,\% of rows (36 of 3{,}600) are below \SI{0}{\celsius} (23\,\% of all rows), where the
-        subthreshold currents are smallest.
-  \item \textbf{Process and VDD:} the median error rises from 1.2 to 1.8\,\% from the highest to the
-        lowest quarter of PMOS $|v_{th0}|$, and from 1.0 to 2.0\,\% from the lowest to the highest VDD
-        quarter; NMOS $v_{th0}$ has little effect (1.3--1.5\,\%).
-\end{itemize}
-At the circuit level (Table~\ref{tab:circuit}; breakdown in \texttt{results/circuit\_error\_breakdown.csv}):
-\begin{itemize}
-  \item \textbf{The corner, not the input vector, sets the error.} The corner explains 99.6\,\% of the
-        variance of the circuit error, and the median error per input vector only ranges from 1.27 to
-        1.82\,\%. All 28 gates share the corner's VDD, temperature and process draw, so gates at the
-        same input combination have the same error. Across the 200 corners the errors of the four NAND2
-        input combinations are nearly uncorrelated with each other ($|r| \le 0.25$); the OFF NMOS stack
-        (00, 01, 10) errs little and without bias, the two OFF PMOS (11) more and mostly low (negative
-        at 77\,\% of the corners), so the circuit error is about that of the gates at 11 alone
-        (median 1.36\,\% with or without the 00/01/10 errors).
-  \item \textbf{OFF-PMOS share.} NAND2 gates at 11 carry 5--97\,\% (median 39\,\%) of the circuit
-        leakage (gate SPICE sum), depending on the vector and corner. The median error rises from
-        0.8\,\% in the lowest quarter of that share to 3.2\,\% in the highest (p95 3.2 to 14.6\,\%, bias
-        $-0.1$ to $-3.0\,\%$), the circuit form of the gate-level finding that OFF-PMOS current is the
-        least accurate part.
-  \item \textbf{Corner conditions.} Ranked with one point per corner (Spearman correlation of the
-        per-corner median error with each condition, 200 corners), PMOS $|v_{th0}|$ and temperature
-        are equally strong drivers ($r = -0.36$ each), then NMOS $v_{th0}$ ($+0.23$); VDD is weak
-        ($+0.14$). The two $v_{th0}$ act mainly through the OFF-PMOS share (Spearman with the
-        per-corner median share $-0.70$ for PMOS $|v_{th0}|$ and $+0.72$ for NMOS $v_{th0}$, which
-        lowers the NMOS stack leakage), temperature through the error of the gates at 11 itself (colder
-        corners more negative, $r = +0.49$ with its signed error, against $-0.11$ with the share); this
-        is why NMOS $v_{th0}$ matters here although it has little effect on the gate error.
-        By quarter (50 corners each), the median error is 3.0\,\% in the lowest quarter of PMOS
-        $|v_{th0}|$ against 0.9--1.0\,\% in the upper two, 2.2\,\% in the highest quarter of NMOS
-        $v_{th0}$ against 1.0\,\% in the lowest, and 2.0\,\% in the highest VDD quarter against
-        1.1--1.3\,\%; it is 2.6\,\% for $T \le \SI{0}{\celsius}$ against 1.0\,\% above \SI{40}{\celsius}
-        (p95 14.7 vs 4.6\,\%). The conditions overlap in the tail: the worst 1\,\% of rows (512) come from only two
-        corners, both among the three lowest PMOS $|v_{th0}|$ of the 200 (0.445\,V) and at $-28$ and
-        \SI{-38}{\celsius}.
-\end{itemize}
+\paragraph{Transistor level: the PMOS OFF drain current.} Gate and circuit leakage are carried by the
+OFF transistors' $I_d$, so the PMOS OFF $I_d$ error (test median 0.49\,\% against 0.14\,\% for NMOS OFF)
+is what limits every level above. Figure~\ref{fig:offid} shows that this is not mainly a noise-floor
+effect. Below about \SI{1e-14}{A} both OFF models lose accuracy, as expected near the \SI{1e-15}{A} floor
+(20\,\% of the PMOS OFF $I_d$ values are below it). From about \SI{1e-12}{A} up, the NMOS OFF error is
+0.09--0.25\,\% per decade, but the PMOS OFF error stays at 0.3--0.75\,\% up to \SI{1e-8}{A} (0.35\,\% median
+for $|I_d| \ge \SI{1e-12}{A}$, against 0.12\,\%). It also grows at low temperature, from 0.35\,\% above
+\SI{80}{\celsius} to 0.69\,\% below \SI{0}{\celsius}, while the NMOS OFF error stays at about 0.16\,\% in
+both; in the eight temperature bins of Fig.~\ref{fig:offid} the PMOS OFF error is 2--5 times the NMOS OFF
+error, from 0.34\,\% at \SI{115}{\celsius} to 0.73\,\% at \SI{-30}{\celsius}. At the
+currents that matter for gate leakage the PMOS OFF error is therefore a model limitation. A likely cause
+is that one network learns all four PMOS OFF currents, two of which ($I_g$ and, in half the rows, $I_b$)
+are mostly noise-floor labels with near-random sign that compete with $I_d$ for capacity and loss.
+$I_g$ and $I_b$ themselves (13.8 and 5.4\,\% validation median for PMOS OFF; 652 and 1{,}097 wrong signs in
+6{,}000 samples) are limited by the noise floor but are negligible in the gate sums. In NMOS ON, NMOS OFF
+and PMOS ON all four currents are accurate (median $\le 0.25\,\%$).
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.9\linewidth]{off_id_error.png}
+\caption{Test-set median error of the OFF-case $I_d$ (chosen MLPs), against the SPICE $|I_d|$ (decade
+bins) and against temperature (8 quantile bins). Dotted line: simulator noise floor.}
+\label{fig:offid}
+\end{figure}
+
+\paragraph{Gate level.} The four least accurate cases are set by OFF PMOS transistors
+(Section~\ref{sec:gates}). Temperature barely matters: the p95 error is 3.7\,\% for
+$T \le \SI{0}{\celsius}$ and 3.6\,\% above \SI{80}{\celsius} (median 0.77\,\% in both), and 19 of the worst
+36 rows (1\,\%) are below \SI{0}{\celsius}, against 23.5\,\% of all rows, spread over 15 of the 18 cases.
+The median error rises from 0.57 to 1.19\,\% from the lowest to the highest VDD quarter; PMOS $|v_{th0}|$
+(0.75--0.81\,\%) and NMOS $v_{th0}$ (0.72--0.85\,\%) have little effect. Figure~\ref{fig:corner} shows the
+median error against temperature and PMOS $|v_{th0}|$ for all gate rows, the NAND2 11 case and the circuit.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.9\linewidth]{error_vs_corner.png}
+\caption{Median $|$error$|$ against temperature and PMOS $|v_{th0}|$ (8 quantile bins of the corners):
+all gate rows, the NAND2 11 rows (25 per bin, hence noisy) and the parity checker.}
+\label{fig:corner}
+\end{figure}
+
+{\sloppy\paragraph{Circuit level.} The corner, not the input vector, sets the circuit error: the corner explains
+99.0\,\% of its variance, as expected when all 28 gates share one VDD, temperature and process draw, and the
+median error per input vector only ranges from 0.54 to 0.65\,\% (p95 2.2--3.0\,\%, mean accuracy
+99.1--99.2\,\%; \texttt{results/circuit\_results\_per\_vector.csv}). The error rises with the OFF-PMOS share of
+the leakage, from 0.39\,\% median in its lowest quarter to 0.78\,\% in its highest, and with VDD, from 0.50\,\%
+in the lowest VDD quarter to 0.97\,\% in the highest (\texttt{results/circuit\_error\_breakdown.csv}). Ranked
+with one point per corner (Spearman, 200 corners; \texttt{results/circuit\_error\_drivers.csv}), VDD is the
+strongest driver ($r = +0.30$), then NMOS $v_{th0}$ ($+0.13$) and PMOS $|v_{th0}|$ ($-0.12$); temperature is
+weak ($-0.08$). The two $v_{th0}$ act through the OFF-PMOS share (a low PMOS $|v_{th0}|$ or a high NMOS
+$v_{th0}$ raises it; Spearman with the share $-0.70$ and $+0.72$). The worst 1\,\% of rows (512) come from two
+corners: corner 52, with the lowest PMOS $|v_{th0}|$ of the 200 (0.445\,V, \SI{18}{\celsius}), and corner 56
+(0.475\,V, \SI{-40}{\celsius}).\par}
 
 \section{Limitations and improvements}
-\begin{itemize}
-  \item \textbf{Simulator noise floor.} Currents below \SI{1e-15}{A} are not reproducible with
-        the unmodified card, which caps the accuracy for PMOS OFF $I_g/I_b$. These currents are
-        negligible in a gate sum, so their effect on gate leakage should be small.
-  \item \textbf{Target choices within seed variation.} Several per-case target choices are closer
-        than the spread between training seeds (Appendix~\ref{app:tt}); the choice follows the
-        rule, but the runner-up would be about as good.
-  \item \textbf{Test set used twice} (Section~\ref{sec:choice}): once with the earlier targets and
-        once with the present ones. The change was decided on the validation set only.
-  \item \textbf{Ensembling.} With the earlier asinh targets, averaging five MLPs trained with seeds
-        42--46 roughly halved the median error (e.g.\ NMOS ON 0.71\,\% $\to$ 0.40\,\%, PMOS OFF
-        12.0\,\% $\to$ 8.8\,\%) at five times the training cost; it was not repeated with the present
-        targets.
-  \item \textbf{Hyperparameter search} was done manually in two rounds and is not reproduced by
-        the final script, which uses the fixed settings found.
-  \item \textbf{Hierarchical assumptions} (exact 0/VDD gate inputs, no loading between gates) cost
-        0.04\,\% median error for the parity checker (p95 0.21\,\%, max 0.51\,\%, gate SPICE sum in
-        Table~\ref{tab:circuit}). This circuit uses one gate type with a fan-out of at most two, so it
-        does not test higher fan-out or gates driving unlike loads, where the loading error may be larger.
-  \item \textbf{Circuit accuracy is bounded by the transistor models.} Gates at the same input
-        combination share the corner's error, so a larger circuit does not average it out, and the
-        OFF-NMOS errors offset the OFF-PMOS error only partly: the circuit error is about that of the
-        NAND2 gates at 11 alone. Improving the
-        circuit estimate means improving the PMOS OFF model, mainly at low PMOS $|v_{th0}|$ and low
-        temperature.
-  \item \textbf{Not SPICE-free.} As spec step 4 prescribes, the gate ML uses gate-level SPICE node
-        voltages at the same corner, so the hierarchical estimate exists only at the 200 Part~B corners.
-        With Kirchhoff's law for the ON transistors the output-type nodes are not needed (97.4\,\% mean
-        accuracy with them set to exactly 0 or VDD, Table~\ref{tab:gatemethods}); only the stack nodes
-        $x$ and $y$ still come from SPICE. Solving those from the transistor models as well would remove
-        the dependence.
+In order of their effect on the result:
+\begin{enumerate}
+  \item \textbf{The PMOS OFF drain-current model still sets most of the remaining error.} With the NAND2 11
+        gates at their SPICE leakage, the parity checker would have a median error of 0.23\,\% and a mean
+        accuracy of 99.6\,\% (\texttt{09\_report\_figures.py}), against 0.59\,\% and 99.1\,\% now. The 40,000
+        PMOS OFF samples and the mean of five networks (seeds 42--46, five times the training cost) took its
+        test $I_d$ median error from 3.0\,\% to 0.49\,\%; more samples did not help further (validation
+        0.98\,\% at 80,000 against 0.91\,\% at 40,000, one network each). A further step would be a separate
+        PMOS OFF network for $I_d$/$I_s$ only, so the noise-floor $I_g$/$I_b$ labels cannot compete with it.
+  \item \textbf{Not SPICE-free.} As spec step 4 prescribes, the gate prediction uses the gate SPICE node
+        voltages of the same corner, so the estimate exists only at the 200 simulated corners. With
+        Kirchhoff's law for the ON transistors the output-type nodes are not needed
+        (Table~\ref{tab:gatemethods}); solving the stack nodes $x$ and $y$ from the transistor models as
+        well would remove the dependence.
   \item \textbf{OFF transistors at $|V_{ds}| \approx 0$} are evaluated at 1\,mV because the OFF datasets
-        contain almost no samples there. Adding OFF samples with $|V_{d} - V_{s}|$ down to
-        \SI{0.1}{\micro V} to the training data would remove this workaround.
-\end{itemize}
+        contain almost no samples there. Adding OFF samples with $|V_d - V_s|$ down to \SI{0.1}{\micro V}
+        would remove this workaround.
+  \item \textbf{Hierarchical assumptions} (exact 0/VDD gate inputs, no loading) cost 0.04\,\% for the
+        parity checker. It uses one gate type with a fan-out of at most two, so it does not test higher
+        fan-out or unlike loads, where the loading error may be larger.
+  \item \textbf{Simulator noise floor.} Currents below \SI{1e-15}{A} are not reproducible with the
+        unmodified card. This caps the PMOS OFF $I_g$/$I_b$ accuracy, but these currents are negligible in
+        the gate sums.
+  \item \textbf{Methodology caveats.} For NMOS ON, NMOS OFF and PMOS ON the test set was scored twice, once
+        with the earlier asinh targets (mean test medians 0.74, 0.58 and 0.70\,\%) and once with the present
+        ones; the change was decided on the validation set only. The PMOS OFF test set comes from the
+        40,000-sample dataset and was scored once, with the final model; its dataset size and the ensemble
+        were chosen on the validation set only. Several per-case target
+        choices are within seed variation (Appendix~\ref{app:tt}). The hyperparameter search was manual and
+        is not re-run by the final scripts.
+\end{enumerate}
 
 \appendix
 \section{MLP hyperparameter search}
@@ -720,48 +637,117 @@ E & $128\times3$, batch 128             & 0.72\,\% & 0.62\,\% & 0.73\,\% & 14.37
 
 \section{Target-transform study}
 \label{app:tt}
-Optional script \texttt{experiments/target\_transforms.py} (about 1.5--2.5\,h; it writes the
-full tables to \texttt{results/experiments/transforms\_tables.md}). Validation set only;
-the test rows are never loaded. Each transform builds on the previous one unless noted:
+The optional script \texttt{experiments/target\_transforms.py} (about 1.5--2.5\,h) writes the full tables
+to \texttt{results/experiments/transforms\_tables.md}. It uses the validation set only; the test rows are
+never loaded. Each transform builds on the previous one unless noted:
 \begin{itemize}[itemsep=1pt]
   \item \textbf{asinh}: the earlier target $\operatorname{asinh}(I/\SI{1e-18}{A})$ (seed 42 only).
   \item \textbf{T0}: $\log_{10}|I|$ plus a sign output per current with mixed training signs.
-  \item \textbf{T1}: canonical drain/source swap (as in the MLP paragraph of the Models section); $I_d$ sign
-        from physics, $I_s$, $I_g$, $I_b$ keep the sign output.
+  \item \textbf{T1}: canonical drain/source swap; $I_d$ sign from physics, $I_s$, $I_g$, $I_b$ keep the sign output.
   \item \textbf{T2}: per-width target $\log_{10}(|I|/W)$.
   \item \textbf{T3a}: T2 plus the inputs $V_{ds}/V_T$, $V_{gs}/V_T$, $V_{bs}/V_T$, $\log_{10}(1-e^{-|V_{ds}|/V_T}+10^{-12})$.
   \item \textbf{T3b}: T2 with the $I_d$/$I_s$ target $\log_{10}\bigl(|I|/(W(1-e^{-|V_{ds}|/V_T})+10^{-30})\bigr)$.
-        No validation sample has $|V_{ds}| < \SI{0.1}{mV}$, and the few training samples below it stay
-        inside the training target range.
   \item \textbf{T4}: best of T0--T3b with $I_s = -(I_d+I_g+I_b)$ instead of predicting $I_s$.
   \item \textbf{T5}: best of T0--T4 with training labels clipped to $|I| \ge \SI{1e-17}{A}$.
 \end{itemize}
-The MLP (network settings of the Models section) and XGBoost (its settings and features, applied to
-$I_d, I_g, I_s, I_b$ directly) were trained with seeds 42, 43 and 44. ``Best'' and the final choice
-use the rule of Section~\ref{sec:choice}, applied to the mean over the three seeds. T2 and all XGBoost rows are in the full
-tables: XGBoost did not improve on its own design with any transform.
-
-\textbf{Which choices are within seed variation} (mean over seeds 42--44 $\pm$ standard deviation of
-the mean median error):
+The MLP and XGBoost were trained with seeds 42, 43 and 44; ``best'' and the final choice use the rule of
+Section~\ref{sec:choice} on the mean over the three seeds. XGBoost did not improve on its own design with
+any transform. The study used the 10,000-sample datasets; the PMOS OFF recipe was kept unchanged for its
+40,000-sample dataset. Within seed variation (mean $\pm$ standard deviation of the mean median error):
 \begin{itemize}[itemsep=1pt]
-  \item NMOS OFF: T4 on T3a (0.136 $\pm$ 0.003\,\%) is clearly ahead of the next, T3a (0.229 $\pm$ 0.007\,\%).
+  \item NMOS OFF: T4 on T3a (0.136 $\pm$ 0.003\,\%) is clearly ahead of T3a (0.229 $\pm$ 0.007\,\%).
   \item NMOS ON: T3b (0.157 $\pm$ 0.004\,\%) against T3a (0.162 $\pm$ 0.010\,\%): within seed variation.
-  \item PMOS ON: T3b (0.152 $\pm$ 0.003\,\%) against T3a (0.152 $\pm$ 0.007\,\%): a tie; on seed 42 alone T3a
-        is lower (0.146 against 0.152\,\%).
-  \item PMOS OFF: T5 on T3a (8.19 $\pm$ 0.06\,\%) against T3a (8.46 $\pm$ 0.22\,\%): within seed variation
-        (the seed ranges 8.13--8.25 and 8.21--8.62\,\% overlap).
+  \item PMOS ON: T3b (0.152 $\pm$ 0.003\,\%) against T3a (0.152 $\pm$ 0.007\,\%): a tie.
+  \item PMOS OFF: T5 on T3a (8.19 $\pm$ 0.06\,\%) against T3a (8.46 $\pm$ 0.22\,\%): within seed variation.
 \end{itemize}
-The step from the asinh target to the log targets with the drain/source swap (T1 onwards) is far
-larger than the seed variation in every case. Clipping (T5) changes nothing for the ON cases, whose
-labels are all above \SI{1e-17}{A}, and ruins NMOS OFF $I_b$ (p95 about 1{,}400\,\%), whose values are
+The step from the asinh target to the log targets with the drain/source swap (T1 onwards) is far larger
+than the seed variation in every case. With the asinh target, most of the largest ON-case $I_d$/$I_s$
+errors were at $|V_d - V_s| < \SI{20}{mV}$, where the channel current changes sign (median 7.6\,\% there);
+the swap, the sign output and the saturation-factor target bring this to 0.4--0.5\,\%. Clipping (T5)
+changes nothing for the ON cases and ruins NMOS OFF $I_b$ (p95 about 1{,}400\,\%), whose values are
 genuinely \SIrange{1e-19}{1e-17}{A}.
 
-\textbf{Why the canonical $I_s$ keeps a sign output.} After the swap, $I_s$ is opposite to the
-channel direction in 59.4\,\% of NMOS OFF and 44.0\,\% of PMOS OFF samples (0.01 and 0.05\,\% in the
-ON cases), while $I_d$ always has the channel sign in the OFF cases. In the OFF cases the source-side
-current is a near-cancellation of channel and junction leakage. The 30 worst samples of T0
-(\texttt{experiments/worst\_rows.py}) show the same picture: in the ON cases 73--90\,\% have
-$|V_d - V_s| < \SI{20}{mV}$ (5\,\% of all samples); in NMOS OFF 28 of 30 are the current at the
-lower-voltage terminal; in PMOS OFF all 30 are below \SI{1e-15}{A}.
+\section{Details of the other model types}
+\label{app:other}
+\paragraph{Polynomial ridge.} A global polynomial of the raw inputs fails on $I_d$ and $I_s$ (about
+100\,\% median error at degree 2--4) because they change sign with $V_d - V_s$. The model predicts
+$D/V_{ds}$ with $D = I_d - I_s$ (even in $V_{ds}$ and positive in all 70{,}000 samples), $I_g$ and $I_b$
+(log magnitude with the majority training sign), each with its own ridge regression; then
+$I_d = (D - I_g - I_b)/2$ and $I_s = (-D - I_g - I_b)/2$. Features: PMOS voltages mirrored
+($V \to V_{DD} - V$) and drain/source sorted into $V_{lo}$, $V_{hi}$; base features $V_{DD}$, $V_{lo}$,
+$V_{hi}$, $1/T$, $\ln W$ and the process parameters; the subthreshold drain factor
+$\ln[(1-e^{-V_{ds}/V_T})/(V_{ds}/V_T)]$; EKV inversion charges $\ln q$,
+$q=\ln(1+e^{(V_G - V - |v_{th0}|)/2nV_T})$ at each end and $\ln[(q_{lo}^2-q_{hi}^2)V_T/V_{ds}]$; a sharper
+softplus and $t_{oxe}(V_G - V)$ at each end for gate tunnelling; $E_g(T)/V_T$ and an optional junction
+reverse-bias factor. Pipeline: standardise, \texttt{PolynomialFeatures}, standardise, \texttt{Ridge}.
+Degree $\in\{2,3,4\}$, $\alpha \in \{10^{-7},\dots,1\}$; selecting on the median error instead of the log
+RMSE picked fits that predicted up to \SI{1e130}{A} at sparse validation points. The EKV charges took the
+ON-case $I_d$ error from about 4\,\% to 0.7\,\%. Chosen degrees ($D/V_{ds}$ / $I_g$ / $I_b$): 3/3/3 for NMOS ON,
+4/4/3 for NMOS OFF, 3/4/3 for PMOS ON and 4/3/2 for PMOS OFF; the junction feature was selected only in
+OFF-case parts. Settings: \texttt{results/poly\_ridge\_validation.csv}.
 
-\end{document}
+\paragraph{XGBoost.} The model predicts $I_{ch} = (I_d - I_s)/2 \cdot \operatorname{sign}(V_d - V_s)$,
+$I_{cm} = (I_d + I_s)/2$, $I_g$ and $I_b$, each as
+$\operatorname{asinh}\bigl(I / (\SI{1e-18}{A}\cdot W/L_{\min})\bigr)$. Features (31): the inputs other than
+$V_d$, $V_s$; $1/T$; $V_{lo}$, $V_{hi}$, their gap and $\ln(1 - e^{-(V_{hi}-V_{lo})/V_T})$; $V_g - V$ and
+$V_b - V$ at each end, also divided by $V_T$ and by $t_{oxe}$; $\ln W$, $\ln t_{oxe}$, $\ln N_{dep}$,
+$\ln u_0$ and $v_{th0}/V_T$. Each booster starts from a least-squares line (\texttt{base\_margin}).
+Settings: 6{,}000 rounds, learning rate 0.015, depth 6, row and column subsampling 0.8, seed 42, 2 threads;
+min.\ child weight 5 and $\lambda = 5$ (PMOS OFF: L1 loss, 1 and 1). Version pinned (3.2.0); results can
+differ slightly between machines.
+
+\paragraph{Random forest.} Inputs: $V_{DD}$, $T$, $W$, $V_{gs}$, $V_{ds}$, $V_{bs}$ and the five process
+parameters. Tuned one at a time on the mean validation $R^2$:
+\texttt{max\_features} $\in\{3, 4, 6, 0.5, 1.0\}$, \texttt{n\_estimators} $\in\{10, 50, 100, 200\}$,
+\texttt{max\_depth} $\in\{8, 12, 16, 20, \text{none}\}$, \texttt{min\_samples\_leaf} $\in\{1, 2, 5, 10\}$;
+seed 2026. Chosen: 200 trees; depth 12 / 12 / 20 / 12, \texttt{max\_features} 1.0 / 6 / 1.0 / 4,
+\texttt{min\_samples\_leaf} 1 / 2 / 1 / 1 (NMOS ON / NMOS OFF / PMOS ON / PMOS OFF). The tuning $R^2$ stays
+above 0.9 for $I_d$, $I_s$ even at 40--90\,\% median error, which shows why $R^2$ on a log scale is not a
+useful selection metric here.
+
+\Needspace{12\baselineskip}
+\section*{Contributions}
+All four team members contributed equally. Model comparison, model selection, test-set evaluation and
+the PMOS OFF dataset-size and ensemble study were done jointly by the whole team.
+
+\newcommand{\contrib}[1]{\begin{minipage}[t]{\linewidth}\raggedright
+  \begin{itemize}[nosep, leftmargin=*]#1\end{itemize}\end{minipage}}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l l >{\raggedright\arraybackslash}p{0.56\linewidth}@{}}
+\toprule
+Name & Roll number & Work \\
+\midrule
+Gaurav Reddy Yerreddi & 2024112006 & \contrib{
+  \item Transistor dataset generation and checks (ngspice runs, Kirchhoff check, trend plots, data split)
+  \item MLP models
+  \item Kirchhoff's-law solve in the gate prediction
+  \item Parity-checker SPICE reference
+  \item Report writing and review} \\
+\addlinespace
+Neel Rajesh & 2024112007 & \contrib{
+  \item Polynomial ridge model (symmetric EKV-based features)
+  \item The 200 shared PVT corners
+  \item Netlists of the five gates
+  \item Gate SPICE reference
+  \item Polynomial ridge and gate SPICE sections of the report} \\
+\addlinespace
+Monishram Selvaraj & 2024112076 & \contrib{
+  \item XGBoost model (31 physics-based features)
+  \item Hierarchical ML prediction of the parity checker
+  \item Circuit error analysis
+  \item Report figures
+  \item Test-circuit and error-analysis sections of the report} \\
+\addlinespace
+Yogesh Krishna & 2024102035 & \contrib{
+  \item Random forest model
+  \item Gate-level ML prediction (terminal voltages, per-transistor currents, gate leakage)
+  \item Gate results table, parity plot and netlist input order
+  \item Branch-current model study
+  \item Report writing and review} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{document} 
