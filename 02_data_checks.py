@@ -45,7 +45,8 @@ def kcl_check(data: dict[str, pd.DataFrame]) -> pd.DataFrame:
 def trend_plot(data, cases, x, y, xlabel, ylabel, title, fname):
     fig, ax = plt.subplots(figsize=(7, 4.5))
     for case in cases:
-        ax.scatter(np.abs(data[case][x]), np.abs(data[case][y]), s=3, alpha=0.3,
+        xs = data[case][x].abs() if x == "vth0" else data[case][x]  # |vth0| for PMOS; temperature can be < 0
+        ax.scatter(xs, np.abs(data[case][y]), s=3, alpha=0.3,
                    color=COLORS[case], label=case, rasterized=True)
     ax.set_yscale("log")
     ax.set_xlabel(xlabel)
