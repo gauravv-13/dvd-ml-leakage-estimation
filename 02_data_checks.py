@@ -6,7 +6,7 @@
      OFF current (|Id| of nmos_off, pmos_off) vs |vth0|
      gate current (|Ig| of all four cases) vs toxe
 
-Outputs: results/kcl_check.csv, figures/kcl_residual.png,
+Outputs: results/kcl_check.csv,
          figures/trend_ioff_vs_temp.png, figures/trend_ioff_vs_vth0.png, figures/trend_ig_vs_toxe.png
 Run:     python 02_data_checks.py
 """
@@ -26,19 +26,9 @@ COLORS = {"nmos_on": "#1d4ed8", "nmos_off": "#60a5fa", "pmos_on": "#b91c1c", "pm
 
 def kcl_check(data: dict[str, pd.DataFrame]) -> pd.DataFrame:
     rows = []
-    fig, ax = plt.subplots(figsize=(7, 4))
     for case, df in data.items():
         resid = np.abs(df[["id", "ig", "is", "ib"]].sum(axis=1).to_numpy())
         rows.append({"case": case, "median_abs_sum_A": np.median(resid), "max_abs_sum_A": resid.max()})
-        ax.hist(np.log10(np.maximum(resid, 1e-24)), bins=60, histtype="step", lw=1.5,
-                color=COLORS[case], label=case)
-    ax.set_xlabel(r"$\log_{10}\,|I_d+I_g+I_s+I_b|$  [A]")
-    ax.set_ylabel("samples")
-    ax.set_title("Kirchhoff check: sum of the four terminal currents")
-    ax.legend(fontsize=8)
-    fig.tight_layout()
-    fig.savefig(FIGURES_DIR / "kcl_residual.png", dpi=200)
-    plt.close(fig)
     return pd.DataFrame(rows)
 
 

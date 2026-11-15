@@ -15,13 +15,10 @@ These results are for evaluation only and are not used for training.
 Outputs
   data/circuit/circuit_spice.csv       one row per (vector, corner): inputs, corner, v_out, out_logic,
                                        i_vdd, i_in0..i_in7 (current delivered by each source), leak [A]
-  data/circuit/metadata.json           simulator version, widths, timing, checks
-  results/circuit_spice_summary.csv    per input vector: median / min / max SPICE leakage
 Run:  python 07_circuit_spice.py
 """
 from __future__ import annotations
 
-import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -29,8 +26,8 @@ import numpy as np
 import pandas as pd
 
 from src.circuit import INPUTS, NETLIST, evaluate, gate_list, vectors
-from src.config import DATA_DIR, RESULTS_DIR, load_config
-from src.spice import apply_params, ngspice_version, run_print
+from src.config import DATA_DIR, load_config
+from src.spice import apply_params, run_print
 
 PROCESS = ["vth0", "toxe", "ndep", "u0", "xj"]
 # netlist width param -> (cell, n/p) in config gates.widths_lmin
@@ -73,16 +70,9 @@ def main() -> None:
     v_err = np.abs(df.v_out - df.out_logic * df.vdd) / df.vdd
     print(f"{len(df)} simulations in {dt:.0f} s | max |Vout - expected| = {v_err.max():.2e} VDD | "
           f"leak <= 0: {(df.leak <= 0).sum()}")
-    meta = {"ngspice": ngspice_version(), "model_file": cfg.model_path.name, "n_corners": len(corners),
-            "n_vectors": 256, "n_gates": gates.type.value_counts().to_dict(), "widths_m": widths,
-            "seconds": round(dt, 1), "max_vout_error_frac_vdd": float(v_err.max()),
-            "n_leak_nonpositive": int((df.leak <= 0).sum())}
-    (out / "metadata.json").write_text(json.dumps(meta, indent=2))
 
     summary = (df.groupby("vector").leak
                .agg(spice_median_A="median", spice_min_A="min", spice_max_A="max").reset_index())
-    RESULTS_DIR.mkdir(exist_ok=True)
-    summary.to_csv(RESULTS_DIR / "circuit_spice_summary.csv", index=False)
     print(f"median leakage over vectors: {summary.spice_median_A.min():.3e} .. {summary.spice_median_A.max():.3e} A")
 
 

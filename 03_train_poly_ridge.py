@@ -15,8 +15,7 @@ follow from D and Kirchhoff (Id + Ig + Is + Ib = 0).
             R^2 on asinh(I / 1e-18)
             median and 95th-percentile relative error, |I_pred - I_SPICE| / |I_SPICE| * 100 [%]
 
-Outputs: results/poly_ridge_sweep.csv        every (part, degree, alpha) tried, train and val error
-         results/poly_ridge_validation.csv   chosen setting per case, validation metrics
+Outputs: results/poly_ridge_validation.csv   chosen setting per case, validation metrics
          saved_models/poly_ridge/<case>.joblib
 Run:     python 03_train_poly_ridge.py
 """
@@ -115,7 +114,6 @@ def main() -> None:
     t0 = time.time()
     out = Parallel(n_jobs=len(CASES))(delayed(run_case)(c) for c in CASES)
     print(f"swept and trained {len(CASES)} cases in {time.time() - t0:.0f} s")
-    pd.concat([sw for _, sw in out]).to_csv(RESULTS_DIR / "poly_ridge_sweep.csv", index=False)
     res = pd.DataFrame([row for row, _ in out])
     res.to_csv(RESULTS_DIR / "poly_ridge_validation.csv", index=False)
     pd.set_option("display.width", 250)

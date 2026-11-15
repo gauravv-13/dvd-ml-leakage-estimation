@@ -14,22 +14,19 @@ These results are for evaluation only and are not used for training.
 Outputs
   data/gates/gate_spice.csv        one row per (gate, inputs, corner): corner values, node voltages,
                                    i_vdd, i_a, i_b (current delivered by each source) and leak [A]
-  data/gates/metadata.json         simulator version, widths, timing
-  results/gate_spice_summary.csv   per gate and input: median / min / max SPICE leakage
 Run:  python 05_gate_spice.py
 """
 from __future__ import annotations
 
 import itertools
-import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
 
-from src.config import DATA_DIR, NETLIST_DIR, RESULTS_DIR, load_config
-from src.spice import apply_params, ngspice_version, run_print
+from src.config import DATA_DIR, NETLIST_DIR, load_config
+from src.spice import apply_params, run_print
 
 PROCESS = ["vth0", "toxe", "ndep", "u0", "xj"]
 # per gate: number of inputs, logic function, internal nodes, netlist width param -> (cell, n/p)
@@ -89,16 +86,9 @@ def main() -> None:
     v_err = np.abs(df.v_out - df.out_logic * df.vdd) / df.vdd
     print(f"{len(df)} simulations in {dt:.0f} s | max |Vout - expected| = {v_err.max():.2e} VDD | "
           f"leak <= 0: {(df.leak <= 0).sum()}")
-    meta = {"ngspice": ngspice_version(), "model_file": cfg.model_path.name, "n_corners": len(corners),
-            "widths_m": {gate: {k: wl[c][t] * cfg.lmin for k, (c, t) in g["widths"].items()}
-                         for gate, g in GATES.items()},
-            "seconds": round(dt, 1), "max_vout_error_frac_vdd": float(v_err.max())}
-    (out / "metadata.json").write_text(json.dumps(meta, indent=2))
 
     summary = (df.groupby(["gate", "inputs"], sort=False).leak
                .agg(spice_median_A="median", spice_min_A="min", spice_max_A="max").reset_index())
-    RESULTS_DIR.mkdir(exist_ok=True)
-    summary.to_csv(RESULTS_DIR / "gate_spice_summary.csv", index=False)
     print(summary.to_string(index=False))
 
 
