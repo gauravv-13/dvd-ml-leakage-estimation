@@ -14,6 +14,7 @@ These results are for evaluation only and are not used for training.
 Outputs
   data/gates/gate_spice.csv        one row per (gate, inputs, corner): corner values, node voltages,
                                    i_vdd, i_a, i_b (current delivered by each source) and leak [A]
+  results/gate_spice_summary.csv   per gate and input: median / min / max SPICE leakage
 Run:  python 05_gate_spice.py
 """
 from __future__ import annotations
@@ -25,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import pandas as pd
 
-from src.config import DATA_DIR, NETLIST_DIR, load_config
+from src.config import DATA_DIR, NETLIST_DIR, RESULTS_DIR, load_config
 from src.spice import apply_params, run_print
 
 PROCESS = ["vth0", "toxe", "ndep", "u0", "xj"]
@@ -89,6 +90,8 @@ def main() -> None:
 
     summary = (df.groupby(["gate", "inputs"], sort=False).leak
                .agg(spice_median_A="median", spice_min_A="min", spice_max_A="max").reset_index())
+    RESULTS_DIR.mkdir(exist_ok=True)
+    summary.to_csv(RESULTS_DIR / "gate_spice_summary.csv", index=False)
     print(summary.to_string(index=False))
 
 
