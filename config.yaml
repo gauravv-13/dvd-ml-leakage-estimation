@@ -5,14 +5,14 @@
 assignment:
   # Team assignment from the TAs.
   confirmed: true
-  model_file: 32nm_HP.pm        # assigned by TAs
-  vdd_nominal: 0.9              # assigned by TAs (V)
-  test_circuit: PARITY8         # assigned by TAs: 8-bit parity checker
+  model_file: 32nm_HP.pm        
+  vdd_nominal: 0.9              
+  test_circuit: PARITY8
 
 technology:
   lmin: auto                    # auto = taken from the model file name (e.g. 22nm -> 22e-9)
 
-sampling:                       # spec section 4
+sampling:                       
   vdd_tolerance: 0.10           # VDD ~ U(vdd_nominal * (1 +/- 0.10))
   temp_range: [-40.0, 125.0]    # deg C
   width_range_lmin: [1.0, 8.0]  # W ~ U(1, 8) * Lmin
@@ -21,6 +21,8 @@ sampling:                       # spec section 4
 
 transistor_data:
   n_samples: 10000              # per case
+  n_samples_per_case:           # spec Part A step 1: "may be increased ... as needed"
+    pmos_off: 40000             # smallest size where doubling stopped improving validation Id (report)
   seed: 2026
   n_jobs: 8                     # parallel ngspice processes
 

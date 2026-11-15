@@ -15,6 +15,8 @@ Per case (nmos_on, nmos_off, pmos_on, pmos_off), one MLP predicts all four curre
   Settings: fixed per case (SETTINGS below); SiLU activations, L1 loss on the magnitudes plus
             logistic loss on the signs, AdamW, one-cycle learning-rate schedule (peak 3e-3),
             batch 256, seed 42
+  Ensemble: PMOS OFF is the mean of 5 networks trained with seeds 42-46 (ENSEMBLE_SEEDS,
+            src/mlp_model.py MLPEnsemble), all on the same training rows; saved as one model
   Metrics (validation, per current, all rows):
             R^2 on asinh(I / 1e-18)
             median and 95th-percentile relative error, |I_pred - I_SPICE| / |I_SPICE| * 100 [%]
@@ -34,10 +36,11 @@ import torch
 from joblib import Parallel, delayed
 
 from src.config import CASES, DATA_DIR, RESULTS_DIR, SAVED_MODELS_DIR
-from src.mlp_model import MLPFET
+from src.mlp_model import MLPEnsemble, MLPFET
 CURRENTS = ["id", "ig", "is", "ib"]
 I_SCALE = 1e-18                       # R^2 scale: asinh(I / I_SCALE)
 SEED = 42
+ENSEMBLE_SEEDS = {"pmos_off": [42, 43, 44, 45, 46]}   # other cases: one network, seed SEED
 
 COMMON = {"activation": "silu", "loss": "l1", "lr": 3e-3, "batch": 256}
 SMALL = {**COMMON, "width": 128, "depth": 3, "epochs": 6000, "weight_decay": 0.0}
@@ -79,28 +82,40 @@ def metrics(I_true: np.ndarray, y_pred: np.ndarray) -> dict:
     return out
 
 
-def run_case(case: str) -> dict:
+def fit_network(case: str, seed: int) -> tuple[MLPFET, float]:
     torch.set_num_threads(2)
-    s, recipe = SETTINGS[case], RECIPES[case]
     d = load(case)
     t0 = time.time()
-    model = MLPFET.fit(case, s, recipe, d["train"], SEED)
-    train_seconds = round(time.time() - t0)
+    return MLPFET.fit(case, SETTINGS[case], RECIPES[case], d["train"], seed), time.time() - t0
+
+
+def score_case(case: str, nets: list[MLPFET], seconds: float) -> dict:
+    s, recipe = SETTINGS[case], RECIPES[case]
+    d = load(case)
+    model = nets[0] if len(nets) == 1 else MLPEnsemble(nets)
+    train_seconds = round(seconds)
     I_pred = model.predict(d["val"])
 
     SAVED_MODELS_DIR.joinpath("mlp").mkdir(parents=True, exist_ok=True)
     path = SAVED_MODELS_DIR / "mlp" / f"{case}.joblib"
     joblib.dump(model, path)
     assert np.array_equal(joblib.load(path).predict(d["val"]), I_pred)   # saved model = scored network
-    return {"model": "MLP", "case": case, **s, "recipe": "+".join(recipe), "train_seconds": train_seconds,
+    return {"model": "MLP", "case": case, **s, "recipe": "+".join(recipe),
+            "seeds": "+".join(str(n.seed) for n in nets), "train_seconds": train_seconds,
             **metrics(d["val"][CURRENTS].to_numpy(), np.arcsinh(I_pred / I_SCALE))}
 
 
 def main() -> None:
     RESULTS_DIR.mkdir(exist_ok=True)
+    torch.set_num_threads(2)              # scoring threads as in the training jobs
     t0 = time.time()
-    rows = Parallel(n_jobs=len(CASES))(delayed(run_case)(c) for c in CASES)
-    print(f"trained {len(CASES)} networks in {time.time() - t0:.0f} s")
+    jobs =[(c, seed) for c in CASES for seed in ENSEMBLE_SEEDS.get(c, [SEED])]
+    fitted = Parallel(n_jobs=len(jobs))(delayed(fit_network)(c, seed) for c, seed in jobs)
+    print(f"trained {len(jobs)} networks in {time.time() - t0:.0f} s")
+    rows = []
+    for c in CASES:
+        mine = [f for (case, _), f in zip(jobs, fitted) if case == c]
+        rows.append(score_case(c, [net for net, _ in mine], sum(sec for _, sec in mine)))
     res = pd.DataFrame(rows)
     res.to_csv(RESULTS_DIR / "mlp_validation.csv", index=False)
     pd.set_option("display.width", 250)

@@ -101,3 +101,19 @@ class MLPFET:
     def __setstate__(self, state):
         self.__dict__.update(state)
         self._net = None
+
+
+class MLPEnsemble:
+    """Several MLPFET networks of one case, trained on the same rows with the same settings and recipe
+    but different training seeds (initial weights and mini-batch order). The prediction is the mean of
+    the members' predicted currents [A]; it is saved and used like one MLPFET."""
+
+    def __init__(self, members: list[MLPFET]):
+        self.members = list(members)
+        self.case = members[0].case
+        self.settings, self.recipe = members[0].settings, members[0].recipe
+        self.seeds = [m.seed for m in members]
+
+    def predict(self, df: pd.DataFrame) -> np.ndarray:
+        """(n, 4) array of Id, Ig, Is, Ib [A], current INTO each terminal: mean over the members."""
+        return np.mean([m.predict(df) for m in self.members], axis=0)

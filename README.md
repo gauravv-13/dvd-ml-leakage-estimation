@@ -53,12 +53,13 @@ python 02_data_checks.py           # results/kcl_check.csv, trend plots
 python 03_make_split.py            # 70/15/15 split per case
 python 03_train_mlp.py             # saved_models/mlp/
 python 03_train_xgboost.py
-python 03_train_poly_ridge.py      # ~12 min on 22 cores
+python 03_train_poly_ridge.py      # ~12 min on 22 cores, ~9 min on 10
 python 03_train_rf.py
 python 03_select_and_test.py       # comparison, choice, test results and plots
 python 04_gen_corners.py           # 200 shared PVT corners
 python 05_gate_spice.py            # ~11 s, 3,600 gate simulations
 python 06_gate_preds.py            # ~1 min, gate ML vs SPICE
+python -m src.circuit              # data/circuit/gates.csv, the gate list read from parity8.cir
 python 07_circuit_spice.py         # ~5.5 min, 51,200 circuit simulations
 python 08_circuit_ml.py            # ~2 s, circuit ML vs SPICE
 python -m pytest tests/ -q         # 19 tests
@@ -126,7 +127,7 @@ of the 10,000 sampled rows in turn and runs ngspice once per row.
 - **Junction geometry** as in the transistor netlists, so the gates match the training data.
 - **Leakage** = static power / VDD = current delivered by the VDD supply + currents delivered by the
   inputs held at VDD (`leak` in `data/gates/gate_spice.csv`); `i_vdd`, `i_a`, `i_b` are stored too.
-- **Simulator:** ngspice-47, like every other phase (`data/gates/metadata.json`). A rerun with
+- **Simulator:** ngspice-47, like every other phase (printed by `01_gen_transistor_data.py`). A rerun with
   ngspice-44.2 (Windows) gave the same leakages to within 0.02 %.
 
 ## Polynomial ridge model (Phase 3)
